@@ -21,6 +21,18 @@ class MenuItemType(str, enum.Enum):
     maid_service = "maid_service"
 
 
+class ProductionStation(str, enum.Enum):
+    kitchen = "kitchen"
+    bar = "bar"
+    none = "none"
+
+
+class ProductionStatus(str, enum.Enum):
+    pending = "pending"
+    preparing = "preparing"
+    completed = "completed"
+
+
 class BillStatus(str, enum.Enum):
     open = "open"
     paying = "paying"

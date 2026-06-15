@@ -30,18 +30,18 @@ export type SessionStatus =
   | "winding_down"
   | "closed";
 
+export type ProductionStation = "kitchen" | "bar" | "none";
+
 export type SessionItem = {
   id: number;
   name: string;
   service_date: string;
   start_time?: string | null;
   end_time?: string | null;
+  kitchen_last_order_time?: string | null;
+  bar_last_order_time?: string | null;
   status: SessionStatus;
   created_at: string;
-};
-
-export type CurrentSessionResponse = {
-  session: SessionItem | null;
 };
 
 export type SessionCreatePayload = {
@@ -49,6 +49,18 @@ export type SessionCreatePayload = {
   service_date: string;
   start_time?: string | null;
   end_time?: string | null;
+  kitchen_last_order_time?: string | null;
+  bar_last_order_time?: string | null;
+  status?: SessionStatus;
+};
+
+export type SessionUpdatePayload = {
+  name?: string;
+  service_date?: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  kitchen_last_order_time?: string | null;
+  bar_last_order_time?: string | null;
   status?: SessionStatus;
 };
 
@@ -70,7 +82,6 @@ export type TableItem = {
   code: string;
   seats: number;
   is_active: boolean;
-  is_shareable: boolean;
   created_at: string;
 };
 
@@ -78,20 +89,19 @@ export type TableCreatePayload = {
   code: string;
   seats: number;
   is_active?: boolean;
-  is_shareable?: boolean;
 };
 
 export type TableUpdatePayload = {
   code?: string;
   seats?: number;
   is_active?: boolean;
-  is_shareable?: boolean;
 };
 
 export type MenuCategoryItem = {
   id: number;
   name: string;
   display_order: number;
+  production_station: ProductionStation;
   created_at: string;
   item_count: number;
 };
@@ -99,11 +109,13 @@ export type MenuCategoryItem = {
 export type MenuCategoryCreatePayload = {
   name: string;
   display_order: number;
+  production_station: ProductionStation;
 };
 
 export type MenuCategoryUpdatePayload = {
   name?: string;
   display_order?: number;
+  production_station?: ProductionStation;
 };
 
 export type MenuItemType = "regular" | "maid_service";
@@ -123,7 +135,7 @@ export type MenuItemRecord = {
   price: string;
   image_url?: string | null;
   category_id?: number | null;
-  item_type: "regular" | "maid_service";
+  item_type: MenuItemType;
   is_active: boolean;
   created_at: string;
   maid_service_pricing?: MaidServicePricingLite | null;
@@ -135,7 +147,7 @@ export type MenuItemCreatePayload = {
   price: string;
   image_url?: string | null;
   category_id?: number | null;
-  item_type: "regular" | "maid_service";
+  item_type: MenuItemType;
   is_active?: boolean;
   additional_maid_price?: string | null;
   all_maids_price?: string | null;
@@ -147,7 +159,7 @@ export type MenuItemUpdatePayload = {
   price?: string;
   image_url?: string | null;
   category_id?: number | null;
-  item_type?: "regular" | "maid_service";
+  item_type?: MenuItemType;
   is_active?: boolean;
   additional_maid_price?: string | null;
   all_maids_price?: string | null;
@@ -156,7 +168,6 @@ export type MenuItemUpdatePayload = {
 export type MaidServicePricingRecord = {
   id: number;
   menu_item_id: number;
-  single_price: string;
   additional_maid_price: string;
   all_maids_price?: string | null;
   created_at: string;
@@ -164,14 +175,12 @@ export type MaidServicePricingRecord = {
 
 export type MaidServicePricingCreatePayload = {
   menu_item_id: number;
-  single_price: string;
   additional_maid_price: string;
   all_maids_price?: string | null;
 };
 
 export type MaidServicePricingUpdatePayload = {
   menu_item_id?: number;
-  single_price?: string;
   additional_maid_price?: string;
   all_maids_price?: string | null;
 };
@@ -189,7 +198,6 @@ export type SessionTableSummary = {
   table_id: number;
   table_code: string;
   seats: number;
-  is_shareable: boolean;
   status: SessionTableStatus;
   current_party_size: number;
   open_bill_id?: number | null;
@@ -200,33 +208,6 @@ export type SessionTableListResponse = {
   session_id: number;
   session_name: string;
   tables: SessionTableSummary[];
-};
-
-export type SessionTableAdminSummary = {
-  id: number;
-  session_id: number;
-  table_id: number;
-  table_code: string;
-  seats: number;
-  is_shareable: boolean;
-  status: SessionTableStatus;
-  current_party_size: number;
-};
-
-export type SessionTableCreatePayload = {
-  session_id: number;
-  table_id: number;
-  status: SessionTableStatus;
-  current_party_size: number;
-};
-
-export type SessionTableUpdatePayload = {
-  status?: SessionTableStatus;
-  current_party_size?: number;
-};
-
-export type SessionTableAddPartyPayload = {
-  party_size: number;
 };
 
 export type BillItem = {
@@ -278,4 +259,26 @@ export type SessionSummaryResponse = {
   session_id: number;
   session_name: string;
   items: SessionSummaryItem[];
+};
+
+export type SessionTableAdminSummary = {
+  id: number;
+  session_id: number;
+  table_id: number;
+  table_code: string;
+  seats: number;
+  status: SessionTableStatus;
+  current_party_size: number;
+};
+
+export type SessionTableCreatePayload = {
+  session_id: number;
+  table_id: number;
+  status: SessionTableStatus;
+  current_party_size: number;
+};
+
+export type SessionTableUpdatePayload = {
+  status?: SessionTableStatus;
+  current_party_size?: number;
 };

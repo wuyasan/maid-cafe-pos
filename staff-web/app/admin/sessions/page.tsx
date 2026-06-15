@@ -1,10 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import SessionForm from "@/components/admin/SessionForm";
-import { apiDelete, apiGet, apiPatch, apiPost, apiPostNoBody } from "@/lib/api";
-import type { SessionCreatePayload, SessionItem, SessionUpdatePayload } from "@/lib/types";
 import Link from "next/link";
+
+import SessionForm from "@/components/admin/SessionForm";
+import {
+  apiDelete,
+  apiGet,
+  apiPatch,
+  apiPost,
+  apiPostNoBody,
+} from "@/lib/api";
+import type {
+  SessionCreatePayload,
+  SessionItem,
+  SessionUpdatePayload,
+} from "@/lib/types";
+
+function formatCutoff(value?: string | null) {
+  if (!value) return "No cutoff";
+  return value.slice(0, 5);
+}
 
 export default function AdminSessionsPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -16,16 +32,12 @@ export default function AdminSessionsPage() {
   async function loadSessions() {
     setLoading(true);
     setError("");
-
     try {
-      const data = await apiGet<unknown>("/sessions");
-
+      const data = await apiGet<SessionItem[]>("/sessions");
       if (!Array.isArray(data)) {
-        console.error("Unexpected /sessions response:", data);
         throw new Error("Expected an array from /sessions");
       }
-
-      setSessions(data as SessionItem[]);
+      setSessions(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load sessions");
     } finally {
@@ -38,12 +50,15 @@ export default function AdminSessionsPage() {
   }, []);
 
   async function handleCreateSession(payload: SessionCreatePayload) {
-    await apiPost<SessionItem>("/sessions", payload);
+    await apiPost("/sessions", payload);
     await loadSessions();
   }
 
-  async function handleUpdateSession(sessionId: number, payload: SessionUpdatePayload) {
-    await apiPatch<SessionItem>(`/sessions/${sessionId}`, payload);
+  async function handleUpdateSession(
+    sessionId: number,
+    payload: SessionUpdatePayload
+  ) {
+    await apiPatch(`/sessions/${sessionId}`, payload);
     setEditingSession(null);
     await loadSessions();
   }
@@ -51,13 +66,7 @@ export default function AdminSessionsPage() {
   async function handleSetCurrent(session: SessionItem) {
     try {
       setActionLoadingId(session.id);
-      await apiPostNoBody<SessionItem>(`/sessions/${session.id}/set-current`);
-      if (editingSession?.id === session.id) {
-        setEditingSession({
-          ...editingSession,
-          status: "active",
-        });
-      }
+      await apiPostNoBody(`/sessions/${session.id}/set-current`);
       await loadSessions();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to set current session");
@@ -66,28 +75,10 @@ export default function AdminSessionsPage() {
     }
   }
 
-  async function handleDelete(session: SessionItem) {
-    const confirmed = window.confirm(`Delete session "${session.name}"?`);
-    if (!confirmed) return;
-
-    try {
-      setActionLoadingId(session.id);
-      await apiDelete<{ success: boolean; deleted_id: number }>(`/sessions/${session.id}`);
-      if (editingSession?.id === session.id) {
-        setEditingSession(null);
-      }
-      await loadSessions();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete session");
-    } finally {
-      setActionLoadingId(null);
-    }
-  }
-
   async function handleSetScheduled(session: SessionItem) {
     try {
       setActionLoadingId(session.id);
-      await apiPostNoBody<SessionItem>(`/sessions/${session.id}/set-scheduled`);
+      await apiPostNoBody(`/sessions/${session.id}/set-scheduled`);
       await loadSessions();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to set session scheduled");
@@ -99,7 +90,7 @@ export default function AdminSessionsPage() {
   async function handleSetClosed(session: SessionItem) {
     try {
       setActionLoadingId(session.id);
-      await apiPostNoBody<SessionItem>(`/sessions/${session.id}/set-closed`);
+      await apiPostNoBody(`/sessions/${session.id}/set-closed`);
       await loadSessions();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to set session closed");
@@ -108,184 +99,107 @@ export default function AdminSessionsPage() {
     }
   }
 
+  async function handleDelete(session: SessionItem) {
+    const confirmed = window.confirm(`Delete session "${session.name}"?`);
+    if (!confirmed) return;
+
+    try {
+      setActionLoadingId(session.id);
+      await apiDelete<{ success: boolean; deleted_id: number }>(
+        `/sessions/${session.id}`
+      );
+      if (editingSession?.id === session.id) {
+        setEditingSession(null);
+      }
+      await loadSessions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete session");
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
   return (
-    <div style={{ display: "grid", gap: 24 }}>
-      <div>
-        <h1 style={{ marginBottom: 8 }}>Sessions</h1>
-        <p style={{ marginTop: 0, color: "#4b5563" }}>
-          Create, edit, set current, and delete service sessions.
-        </p>
-      </div>
+    <main style={{ maxWidth: 1180, margin: "0 auto", padding: 24 }}>
+      <h1>Sessions</h1>
+      <p style={{ color: "#6b7280" }}>
+        Set separate Kitchen and Bar last-order times for each service session.
+      </p>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "380px 1fr",
-          gap: 24,
-          alignItems: "start",
-        }}
-      >
-        <SessionForm
-          editingSession={editingSession}
-          onCreate={handleCreateSession}
-          onUpdate={handleUpdateSession}
-          onCancelEdit={() => setEditingSession(null)}
-        />
+      <SessionForm
+        editingSession={editingSession}
+        onCreate={handleCreateSession}
+        onUpdate={handleUpdateSession}
+        onCancelEdit={() => setEditingSession(null)}
+      />
 
-        <section
-          style={{
-            background: "#fff",
-            border: "1px solid #e5e7eb",
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
-          <h3 style={{ marginTop: 0 }}>Session List</h3>
+      <section style={{ marginTop: 24 }}>
+        <h3>Session List</h3>
+        {loading ? <p>Loading...</p> : null}
+        {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
+        {!loading && !error && sessions.length === 0 ? (
+          <p>No sessions yet.</p>
+        ) : null}
 
-          {loading ? <p>Loading...</p> : null}
-          {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
-
-          {!loading && !error && sessions.length === 0 ? <p>No sessions yet.</p> : null}
-
-          <div style={{ display: "grid", gap: 16 }}>
-            {sessions.map((session) => (
+        <div style={{ display: "grid", gap: 12 }}>
+          {sessions.map((session) => (
+            <article
+              key={session.id}
+              style={{
+                padding: 16,
+                border: "1px solid #e5e7eb",
+                borderRadius: 14,
+                background: "#fff",
+              }}
+            >
               <div
-                key={session.id}
                 style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 14,
-                  padding: 16,
-                  display: "grid",
-                  gap: 10,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <strong>{session.name}</strong>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 8px",
-                      borderRadius: 999,
-                      background:
-                        session.status === "active"
-                          ? "#dcfce7"
-                          : session.status === "scheduled"
-                          ? "#e0f2fe"
-                          : session.status === "winding_down"
-                          ? "#fef3c7"
-                          : "#f3f4f6",
-                    }}
-                  >
-                    {session.status}
+                <div style={{ display: "grid", gap: 5 }}>
+                  <strong>
+                    {session.name} · {session.status}
+                  </strong>
+                  <span style={{ color: "#4b5563", fontSize: 14 }}>
+                    Service Date: {session.service_date}
+                  </span>
+                  <span style={{ color: "#4b5563", fontSize: 14 }}>
+                    Start: {session.start_time || "—"} · End: {session.end_time || "—"}
+                  </span>
+                  <span style={{ fontSize: 14 }}>
+                    Kitchen Last Order: <strong>{formatCutoff(session.kitchen_last_order_time)}</strong>
+                  </span>
+                  <span style={{ fontSize: 14 }}>
+                    Bar Last Order: <strong>{formatCutoff(session.bar_last_order_time)}</strong>
                   </span>
                 </div>
 
-                <div style={{ fontSize: 14, color: "#4b5563" }}>
-                  <div>ID: {session.id}</div>
-                  <div>Service Date: {session.service_date}</div>
-                  <div>Start: {session.start_time || "—"}</div>
-                  <div>End: {session.end_time || "—"}</div>
-                </div>
-
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={() => setEditingSession(session)}
-                    disabled={actionLoadingId === session.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Edit
-                  </button>
-
-                  <Link
-                    href={`/admin/sessions/${session.id}/summary`}
-                    style={{
-                      textDecoration: "none",
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
-                      color: "#111827",
-                    }}
-                  >
-                    Summary
-                  </Link>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSetCurrent(session)}
-                    disabled={actionLoadingId === session.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "none",
-                      background: "#2563eb",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
+                  <button onClick={() => setEditingSession(session)}>Edit</button>
+                  <Link href={`/admin/sessions/${session.id}/summary`}>Summary</Link>
+                  <button onClick={() => handleSetCurrent(session)}>
                     {actionLoadingId === session.id ? "Saving..." : "Set Current"}
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSetScheduled(session)}
-                    disabled={actionLoadingId === session.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "none",
-                      background: "#6b7280",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {actionLoadingId === session.id ? "Saving..." : "Set Scheduled"}
+                  <button onClick={() => handleSetScheduled(session)}>
+                    Set Scheduled
                   </button>
-
+                  <button onClick={() => handleSetClosed(session)}>Set Closed</button>
                   <button
-                    type="button"
-                    onClick={() => handleSetClosed(session)}
-                    disabled={actionLoadingId === session.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "none",
-                      background: "#111827",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {actionLoadingId === session.id ? "Saving..." : "Set Closed"}
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={() => handleDelete(session)}
-                    disabled={actionLoadingId === session.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "none",
-                      background: "#dc2626",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
+                    style={{ background: "#dc2626", color: "#fff" }}
                   >
-                    {actionLoadingId === session.id ? "Deleting..." : "Delete"}
+                    Delete
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-      </div>
-    </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -11,6 +11,8 @@ class SessionBase(BaseModel):
     service_date: date
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    kitchen_last_order_time: Optional[time] = None
+    bar_last_order_time: Optional[time] = None
     status: SessionStatus = SessionStatus.scheduled
 
 
@@ -23,6 +25,8 @@ class SessionUpdate(BaseModel):
     service_date: Optional[date] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    kitchen_last_order_time: Optional[time] = None
+    bar_last_order_time: Optional[time] = None
     status: Optional[SessionStatus] = None
 
 

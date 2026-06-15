@@ -1,5 +1,11 @@
-export type SessionStatus = "scheduled" | "active" | "winding_down" | "closed";
+export type SessionStatus =
+  | "scheduled"
+  | "active"
+  | "winding_down"
+  | "closed";
+
 export type MenuItemType = "regular" | "maid_service";
+export type ProductionStation = "kitchen" | "bar" | "none";
 
 export type SessionItem = {
   id: number;
@@ -7,6 +13,8 @@ export type SessionItem = {
   service_date: string;
   start_time?: string | null;
   end_time?: string | null;
+  kitchen_last_order_time?: string | null;
+  bar_last_order_time?: string | null;
   status: SessionStatus;
   created_at: string;
 };
@@ -116,6 +124,7 @@ export type MenuCategoryItem = {
   id: number;
   name: string;
   display_order: number;
+  production_station: ProductionStation;
   created_at: string;
   item_count: number;
 };

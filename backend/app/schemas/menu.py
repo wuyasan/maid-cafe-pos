@@ -4,16 +4,23 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import MenuItemType
+from app.models.enums import MenuItemType, ProductionStation
 
 
 class MenuCategoryBase(BaseModel):
     name: str
     display_order: int = 0
+    production_station: ProductionStation = ProductionStation.none
 
 
 class MenuCategoryCreate(MenuCategoryBase):
     pass
+
+
+class MenuCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    display_order: Optional[int] = None
+    production_station: Optional[ProductionStation] = None
 
 
 class MenuCategoryRead(MenuCategoryBase):
@@ -87,7 +94,6 @@ class MenuItemWithPricingCreate(BaseModel):
     category_id: Optional[int] = None
     item_type: MenuItemType
     is_active: bool = True
-
     additional_maid_price: Optional[Decimal] = None
     all_maids_price: Optional[Decimal] = None
 
@@ -100,7 +106,6 @@ class MenuItemWithPricingUpdate(BaseModel):
     category_id: Optional[int] = None
     item_type: Optional[MenuItemType] = None
     is_active: Optional[bool] = None
-
     additional_maid_price: Optional[Decimal] = None
     all_maids_price: Optional[Decimal] = None
 

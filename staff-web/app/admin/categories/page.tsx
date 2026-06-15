@@ -1,34 +1,39 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
 import CategoryForm from "@/components/admin/CategoryForm";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import type {
   MenuCategoryCreatePayload,
   MenuCategoryItem,
   MenuCategoryUpdatePayload,
+  ProductionStation,
 } from "@/lib/types";
+
+function stationLabel(station: ProductionStation) {
+  if (station === "kitchen") return "Kitchen";
+  if (station === "bar") return "Bar";
+  return "None";
+}
 
 export default function AdminCategoriesPage() {
   const [categories, setCategories] = useState<MenuCategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [editingCategory, setEditingCategory] = useState<MenuCategoryItem | null>(null);
+  const [editingCategory, setEditingCategory] =
+    useState<MenuCategoryItem | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
   async function loadCategories() {
     setLoading(true);
     setError("");
-
     try {
-      const data = await apiGet<unknown>("/menu/categories");
-
+      const data = await apiGet<MenuCategoryItem[]>("/menu/categories");
       if (!Array.isArray(data)) {
-        console.error("Unexpected /menu/categories response:", data);
         throw new Error("Expected an array from /menu/categories");
       }
-
-      setCategories(data as MenuCategoryItem[]);
+      setCategories(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load categories");
     } finally {
@@ -41,12 +46,15 @@ export default function AdminCategoriesPage() {
   }, []);
 
   async function handleCreateCategory(payload: MenuCategoryCreatePayload) {
-    await apiPost<MenuCategoryItem>("/menu/categories", payload);
+    await apiPost("/menu/categories", payload);
     await loadCategories();
   }
 
-  async function handleUpdateCategory(categoryId: number, payload: MenuCategoryUpdatePayload) {
-    await apiPatch<MenuCategoryItem>(`/menu/categories/${categoryId}`, payload);
+  async function handleUpdateCategory(
+    categoryId: number,
+    payload: MenuCategoryUpdatePayload
+  ) {
+    await apiPatch(`/menu/categories/${categoryId}`, payload);
     setEditingCategory(null);
     await loadCategories();
   }
@@ -57,7 +65,9 @@ export default function AdminCategoriesPage() {
 
     try {
       setActionLoadingId(category.id);
-      await apiDelete<{ success: boolean; deleted_id: number }>(`/menu/categories/${category.id}`);
+      await apiDelete<{ success: boolean; deleted_id: number }>(
+        `/menu/categories/${category.id}`
+      );
       if (editingCategory?.id === category.id) {
         setEditingCategory(null);
       }
@@ -70,103 +80,74 @@ export default function AdminCategoriesPage() {
   }
 
   return (
-    <div style={{ display: "grid", gap: 24 }}>
-      <div>
-        <h1 style={{ marginBottom: 8 }}>Menu Categories</h1>
-        <p style={{ marginTop: 0, color: "#4b5563" }}>
-          Create, edit, and delete menu categories.
-        </p>
-      </div>
+    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
+      <h1>Menu Categories</h1>
+      <p style={{ color: "#6b7280" }}>
+        Assign every category to Kitchen, Bar, or None.
+      </p>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "380px 1fr",
-          gap: 24,
-          alignItems: "start",
-        }}
-      >
-        <CategoryForm
-          editingCategory={editingCategory}
-          onCreate={handleCreateCategory}
-          onUpdate={handleUpdateCategory}
-          onCancelEdit={() => setEditingCategory(null)}
-        />
+      <CategoryForm
+        editingCategory={editingCategory}
+        onCreate={handleCreateCategory}
+        onUpdate={handleUpdateCategory}
+        onCancelEdit={() => setEditingCategory(null)}
+      />
 
-        <section
-          style={{
-            background: "#fff",
-            border: "1px solid #e5e7eb",
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
-          <h3 style={{ marginTop: 0 }}>Category List</h3>
+      <section style={{ marginTop: 24 }}>
+        <h3>Category List</h3>
+        {loading ? <p>Loading...</p> : null}
+        {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
+        {!loading && !error && categories.length === 0 ? (
+          <p>No categories yet.</p>
+        ) : null}
 
-          {loading ? <p>Loading...</p> : null}
-          {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
-
-          {!loading && !error && categories.length === 0 ? <p>No categories yet.</p> : null}
-
-          <div style={{ display: "grid", gap: 16 }}>
-            {categories.map((category) => (
-              <div
-                key={category.id}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 14,
-                  padding: 16,
-                  display: "grid",
-                  gap: 10,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <strong>{category.name}</strong>
-                </div>
-
-                <div style={{ fontSize: 14, color: "#4b5563" }}>
-                  <div>ID: {category.id}</div>
-                  <div>Display Order: {category.display_order}</div>
-                  <div>Items: {category.item_count}</div>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={() => setEditingCategory(category)}
-                    disabled={actionLoadingId === category.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Edit
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(category)}
-                    disabled={actionLoadingId === category.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "none",
-                      background: "#dc2626",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {actionLoadingId === category.id ? "Deleting..." : "Delete"}
-                  </button>
-                </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {categories.map((category) => (
+            <article
+              key={category.id}
+              style={{
+                padding: 16,
+                border: "1px solid #e5e7eb",
+                borderRadius: 14,
+                background: "#fff",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 16,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "grid", gap: 4 }}>
+                <strong>{category.name}</strong>
+                <span style={{ color: "#4b5563", fontSize: 14 }}>
+                  ID: {category.id} · Display Order: {category.display_order} · Items: {category.item_count}
+                </span>
+                <span style={{ fontSize: 14 }}>
+                  Station: <strong>{stationLabel(category.production_station)}</strong>
+                </span>
               </div>
-            ))}
-          </div>
-        </section>
-      </div>
-    </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingCategory(category)}
+                  disabled={actionLoadingId === category.id}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(category)}
+                  disabled={actionLoadingId === category.id}
+                  style={{ background: "#dc2626", color: "#fff" }}
+                >
+                  {actionLoadingId === category.id ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }

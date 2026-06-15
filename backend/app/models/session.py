@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import List, Optional
 
-from sqlalchemy import Date, DateTime, Enum, String
+from sqlalchemy import Date, DateTime, Enum, String, Time
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -19,7 +19,8 @@ class Session(Base, TimestampMixin):
     service_date: Mapped[date] = mapped_column(Date, nullable=False)
     start_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-
+    kitchen_last_order_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    bar_last_order_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     status: Mapped[SessionStatus] = mapped_column(
         Enum(SessionStatus, name="session_status"),
         default=SessionStatus.scheduled,
@@ -31,7 +32,6 @@ class Session(Base, TimestampMixin):
         back_populates="session",
         cascade="all, delete-orphan",
     )
-
     session_maids: Mapped[List["SessionMaid"]] = relationship(
         "SessionMaid",
         back_populates="session",
