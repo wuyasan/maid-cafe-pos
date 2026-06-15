@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
 import TableForm from "@/components/admin/TableForm";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
-import type { TableCreatePayload, TableItem, TableUpdatePayload } from "@/lib/types";
+import type {
+  TableCreatePayload,
+  TableItem,
+  TableUpdatePayload,
+} from "@/lib/types";
 
 export default function AdminTablesPage() {
   const [tables, setTables] = useState<TableItem[]>([]);
@@ -18,12 +23,10 @@ export default function AdminTablesPage() {
 
     try {
       const data = await apiGet<unknown>("/tables");
-
       if (!Array.isArray(data)) {
         console.error("Unexpected /tables response:", data);
         throw new Error("Expected an array from /tables");
       }
-
       setTables(data as TableItem[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tables");
@@ -41,7 +44,10 @@ export default function AdminTablesPage() {
     await loadTables();
   }
 
-  async function handleUpdateTable(tableId: number, payload: TableUpdatePayload) {
+  async function handleUpdateTable(
+    tableId: number,
+    payload: TableUpdatePayload,
+  ) {
     await apiPatch<TableItem>(`/tables/${tableId}`, payload);
     setEditingTable(null);
     await loadTables();
@@ -50,18 +56,40 @@ export default function AdminTablesPage() {
   async function handleToggleActive(table: TableItem) {
     try {
       setActionLoadingId(table.id);
-      await apiPatch<TableItem>(`/tables/${table.id}`, {
+      const updated = await apiPatch<TableItem>(`/tables/${table.id}`, {
         is_active: !table.is_active,
       });
+
       if (editingTable?.id === table.id) {
-        setEditingTable({
-          ...editingTable,
-          is_active: !table.is_active,
-        });
+        setEditingTable(updated);
       }
+
       await loadTables();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to toggle table status");
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  async function handleToggleShareable(table: TableItem) {
+    try {
+      setActionLoadingId(table.id);
+      const updated = await apiPatch<TableItem>(`/tables/${table.id}`, {
+        is_shareable: !table.is_shareable,
+      });
+
+      if (editingTable?.id === table.id) {
+        setEditingTable(updated);
+      }
+
+      await loadTables();
+    } catch (err) {
+      alert(
+        err instanceof Error
+          ? err.message
+          : "Failed to update shared seating",
+      );
     } finally {
       setActionLoadingId(null);
     }
@@ -73,10 +101,14 @@ export default function AdminTablesPage() {
 
     try {
       setActionLoadingId(table.id);
-      await apiDelete<{ success: boolean; deleted_id: number }>(`/tables/${table.id}`);
+      await apiDelete<{ success: boolean; deleted_id: number }>(
+        `/tables/${table.id}`,
+      );
+
       if (editingTable?.id === table.id) {
         setEditingTable(null);
       }
+
       await loadTables();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete table");
@@ -90,14 +122,15 @@ export default function AdminTablesPage() {
       <div>
         <h1 style={{ marginBottom: 8 }}>Tables</h1>
         <p style={{ marginTop: 0, color: "#4b5563" }}>
-          Add, edit, activate/deactivate, and delete table records.
+          Set each table&apos;s capacity and whether unrelated parties may share
+          it.
         </p>
       </div>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "380px 1fr",
+          gridTemplateColumns: "minmax(300px, 380px) minmax(0, 1fr)",
           gap: 24,
           alignItems: "start",
         }}
@@ -121,94 +154,155 @@ export default function AdminTablesPage() {
 
           {loading ? <p>Loading...</p> : null}
           {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
+          {!loading && !error && tables.length === 0 ? (
+            <p>No tables yet.</p>
+          ) : null}
 
-          {!loading && !error && tables.length === 0 ? <p>No tables yet.</p> : null}
+          <div style={{ display: "grid", gap: 12 }}>
+            {tables.map((table) => {
+              const isBusy = actionLoadingId === table.id;
 
-          <div style={{ display: "grid", gap: 16 }}>
-            {tables.map((table) => (
-              <div
-                key={table.id}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 14,
-                  padding: 16,
-                  display: "grid",
-                  gap: 10,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <strong>{table.code}</strong>
-                  <span
+              return (
+                <article
+                  key={table.id}
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 14,
+                    padding: 16,
+                    display: "grid",
+                    gap: 12,
+                  }}
+                >
+                  <div
                     style={{
-                      fontSize: 12,
-                      padding: "2px 8px",
-                      borderRadius: 999,
-                      background: table.is_active ? "#dcfce7" : "#fee2e2",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: 12,
+                      flexWrap: "wrap",
                     }}
                   >
-                    {table.is_active ? "Active" : "Inactive"}
-                  </span>
-                </div>
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <strong style={{ fontSize: 20 }}>{table.code}</strong>
+                        <span
+                          style={{
+                            padding: "3px 9px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            background: table.is_active ? "#dcfce7" : "#fee2e2",
+                            color: table.is_active ? "#166534" : "#991b1b",
+                          }}
+                        >
+                          {table.is_active ? "Active" : "Inactive"}
+                        </span>
+                        <span
+                          style={{
+                            padding: "3px 9px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            background: table.is_shareable ? "#dbeafe" : "#f3f4f6",
+                            color: table.is_shareable ? "#1d4ed8" : "#374151",
+                          }}
+                        >
+                          {table.is_shareable ? "Shareable" : "Private table"}
+                        </span>
+                      </div>
 
-                <div style={{ fontSize: 14, color: "#4b5563" }}>
-                  <div>ID: {table.id}</div>
-                  <div>Seats: {table.seats}</div>
-                </div>
+                      <div
+                        style={{
+                          color: "#6b7280",
+                          fontSize: 14,
+                          marginTop: 6,
+                        }}
+                      >
+                        ID: {table.id} · Capacity: {table.seats}
+                      </div>
+                    </div>
+                  </div>
 
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={() => setEditingTable(table)}
-                    disabled={actionLoadingId === table.id}
+                  <div
                     style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
-                      cursor: "pointer",
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
                     }}
                   >
-                    Edit
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingTable(table)}
+                      disabled={isBusy}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 10,
+                        border: "1px solid #d1d5db",
+                        background: "#fff",
+                        cursor: isBusy ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      Edit
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleToggleActive(table)}
-                    disabled={actionLoadingId === table.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "none",
-                      background: table.is_active ? "#f59e0b" : "#10b981",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {actionLoadingId === table.id
-                      ? "Saving..."
-                      : table.is_active
-                      ? "Set Inactive"
-                      : "Set Active"}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleShareable(table)}
+                      disabled={isBusy}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 10,
+                        border: "none",
+                        background: table.is_shareable ? "#6b7280" : "#2563eb",
+                        color: "#fff",
+                        cursor: isBusy ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {table.is_shareable
+                        ? "Set Private"
+                        : "Allow Shared Seating"}
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(table)}
-                    disabled={actionLoadingId === table.id}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      border: "none",
-                      background: "#dc2626",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {actionLoadingId === table.id ? "Deleting..." : "Delete"}
-                  </button>
-                </div>
-              </div>
-            ))}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleActive(table)}
+                      disabled={isBusy}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 10,
+                        border: "none",
+                        background: table.is_active ? "#f59e0b" : "#10b981",
+                        color: "#fff",
+                        cursor: isBusy ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {table.is_active ? "Set Inactive" : "Set Active"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(table)}
+                      disabled={isBusy}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 10,
+                        border: "none",
+                        background: "#dc2626",
+                        color: "#fff",
+                        cursor: isBusy ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       </div>

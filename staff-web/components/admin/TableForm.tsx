@@ -1,12 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { TableCreatePayload, TableItem, TableUpdatePayload } from "@/lib/types";
+
+import type {
+  TableCreatePayload,
+  TableItem,
+  TableUpdatePayload,
+} from "@/lib/types";
 
 type Props = {
   editingTable: TableItem | null;
   onCreate: (payload: TableCreatePayload) => Promise<void>;
-  onUpdate: (tableId: number, payload: TableUpdatePayload) => Promise<void>;
+  onUpdate: (
+    tableId: number,
+    payload: TableUpdatePayload,
+  ) => Promise<void>;
   onCancelEdit: () => void;
 };
 
@@ -19,6 +27,7 @@ export default function TableForm({
   const [code, setCode] = useState("");
   const [seats, setSeats] = useState(2);
   const [isActive, setIsActive] = useState(true);
+  const [isShareable, setIsShareable] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -27,10 +36,12 @@ export default function TableForm({
       setCode(editingTable.code ?? "");
       setSeats(editingTable.seats ?? 2);
       setIsActive(editingTable.is_active);
+      setIsShareable(editingTable.is_shareable);
     } else {
       setCode("");
       setSeats(2);
       setIsActive(true);
+      setIsShareable(false);
     }
   }, [editingTable]);
 
@@ -40,16 +51,21 @@ export default function TableForm({
     setSubmitting(true);
 
     try {
-      const payload = {
-        code,
+      const payload: TableCreatePayload = {
+        code: code.trim(),
         seats,
         is_active: isActive,
+        is_shareable: isShareable,
       };
 
       if (editingTable) {
         await onUpdate(editingTable.id, payload);
       } else {
         await onCreate(payload);
+        setCode("");
+        setSeats(2);
+        setIsActive(true);
+        setIsShareable(false);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save table");
@@ -70,8 +86,18 @@ export default function TableForm({
         gap: 16,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h3 style={{ margin: 0 }}>{editingTable ? "Edit Table" : "Add Table"}</h3>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <h3 style={{ margin: 0 }}>
+          {editingTable ? "Edit Table" : "Add Table"}
+        </h3>
+
         {editingTable ? (
           <button
             type="button"
@@ -93,10 +119,15 @@ export default function TableForm({
         <span>Code</span>
         <input
           value={code}
-          onChange={(e) => setCode(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCode(e.target.value)}
           required
+          maxLength={10}
           placeholder="T1"
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
+          style={{
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid #d1d5db",
+          }}
         />
       </label>
 
@@ -106,21 +137,56 @@ export default function TableForm({
           type="number"
           min={1}
           value={seats}
-          onChange={(e) => setSeats(Number(e.target.value))}
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            setSeats(Math.max(1, Number(e.target.value || 1)))
+          }
+          style={{
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid #d1d5db",
+          }}
         />
+      </label>
+
+      <label style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <input
+          type="checkbox"
+          checked={isShareable}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            setIsShareable(e.target.checked)
+          }
+          style={{ marginTop: 3 }}
+        />
+        <span>
+          <strong>Allow shared seating</strong>
+          <span
+            style={{
+              display: "block",
+              marginTop: 3,
+              color: "#6b7280",
+              fontSize: 13,
+              lineHeight: 1.4,
+            }}
+          >
+            When enabled, another party may be assigned while seats remain.
+          </span>
+        </span>
       </label>
 
       <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <input
           type="checkbox"
           checked={isActive}
-          onChange={(e) => setIsActive(e.target.checked)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            setIsActive(e.target.checked)
+          }
         />
         <span>Active</span>
       </label>
 
-      {error ? <p style={{ color: "#b91c1c", margin: 0 }}>{error}</p> : null}
+      {error ? (
+        <p style={{ color: "#b91c1c", margin: 0 }}>{error}</p>
+      ) : null}
 
       <button
         type="submit"
@@ -131,10 +197,15 @@ export default function TableForm({
           border: "none",
           background: "#111827",
           color: "#fff",
-          cursor: "pointer",
+          cursor: submitting ? "not-allowed" : "pointer",
+          opacity: submitting ? 0.7 : 1,
         }}
       >
-        {submitting ? "Saving..." : editingTable ? "Update Table" : "Create Table"}
+        {submitting
+          ? "Saving..."
+          : editingTable
+            ? "Update Table"
+            : "Create Table"}
       </button>
     </form>
   );

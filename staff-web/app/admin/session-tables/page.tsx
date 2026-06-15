@@ -1,41 +1,81 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import type {
+  CurrentSessionResponse,
   SessionItem,
+  SessionTableAddPartyPayload,
   SessionTableAdminSummary,
   SessionTableCreatePayload,
-  SessionTableStatus,
   TableItem,
 } from "@/lib/types";
+
+function getSimpleStatus(table: SessionTableAdminSummary) {
+  if (table.status === "paying") {
+    return {
+      label: "Checking out",
+      background: "#fef3c7",
+      color: "#92400e",
+    };
+  }
+
+  if (table.current_party_size === 0) {
+    return {
+      label: "Empty",
+      background: "#dcfce7",
+      color: "#166534",
+    };
+  }
+
+  return {
+    label: "Seated",
+    background: "#dbeafe",
+    color: "#1d4ed8",
+  };
+}
 
 export default function AdminSessionTablesPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [tables, setTables] = useState<TableItem[]>([]);
-  const [sessionTables, setSessionTables] = useState<SessionTableAdminSummary[]>([]);
+  const [sessionTables, setSessionTables] = useState<
+    SessionTableAdminSummary[]
+  >([]);
+
   const [selectedSessionId, setSelectedSessionId] = useState<number | "">("");
   const [selectedTableId, setSelectedTableId] = useState<number | "">("");
-  const [status, setStatus] = useState<SessionTableStatus>("available");
+  const [initialPartySize, setInitialPartySize] = useState(0);
+  const [newPartySizes, setNewPartySizes] = useState<Record<number, number>>({});
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
-  const [currentPartySize, setCurrentPartySize] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   async function loadBaseData() {
     setLoading(true);
     setError("");
 
     try {
-      const [sessionsData, tablesData] = await Promise.all([
+      const [sessionsData, tablesData, currentData] = await Promise.all([
         apiGet<SessionItem[]>("/sessions"),
         apiGet<TableItem[]>("/tables"),
+        apiGet<CurrentSessionResponse>("/sessions/current"),
       ]);
-      setSessions(sessionsData);
-      setTables(tablesData.filter((t) => t.is_active));
 
-      if (sessionsData.length > 0 && selectedSessionId === "") {
-        setSelectedSessionId(sessionsData[0].id);
+      setSessions(sessionsData);
+      setTables(tablesData.filter((table) => table.is_active));
+
+      if (selectedSessionId === "") {
+        const defaultSession =
+          currentData.session ??
+          sessionsData.find((session) => session.status === "active") ??
+          sessionsData[0];
+
+        if (defaultSession) {
+          setSelectedSessionId(defaultSession.id);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load base data");
@@ -46,10 +86,14 @@ export default function AdminSessionTablesPage() {
 
   async function loadSessionTables(sessionId: number) {
     try {
-      const data = await apiGet<SessionTableAdminSummary[]>(`/tables/session-tables?session_id=${sessionId}`);
+      const data = await apiGet<SessionTableAdminSummary[]>(
+        `/tables/session-tables?session_id=${sessionId}`,
+      );
       setSessionTables(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load session tables");
+      setError(
+        err instanceof Error ? err.message : "Failed to load session tables",
+      );
     }
   }
 
@@ -60,96 +104,182 @@ export default function AdminSessionTablesPage() {
   useEffect(() => {
     if (selectedSessionId !== "") {
       loadSessionTables(Number(selectedSessionId));
+    } else {
+      setSessionTables([]);
     }
   }, [selectedSessionId]);
+
+  const linkedTableIds = useMemo(
+    () => new Set(sessionTables.map((sessionTable) => sessionTable.table_id)),
+    [sessionTables],
+  );
+
+  const availableTablesToAdd = useMemo(
+    () => tables.filter((table) => !linkedTableIds.has(table.id)),
+    [tables, linkedTableIds],
+  );
+
+  const selectedTable = useMemo(
+    () => tables.find((table) => table.id === selectedTableId) ?? null,
+    [tables, selectedTableId],
+  );
+
+  useEffect(() => {
+    if (selectedTable && initialPartySize > selectedTable.seats) {
+      setInitialPartySize(selectedTable.seats);
+    }
+  }, [selectedTable, initialPartySize]);
 
   async function handleCreate() {
     if (selectedSessionId === "" || selectedTableId === "") return;
 
     try {
-      await apiPost<SessionTableAdminSummary>("/tables/session-tables", {
+      setError("");
+      const payload: SessionTableCreatePayload = {
         session_id: Number(selectedSessionId),
         table_id: Number(selectedTableId),
-        status,
-        current_party_size: currentPartySize,
-      } satisfies SessionTableCreatePayload);
+        status: "available",
+        current_party_size: initialPartySize,
+      };
+
+      await apiPost<SessionTableAdminSummary>(
+        "/tables/session-tables",
+        payload,
+      );
 
       setSelectedTableId("");
-      setStatus("available");
-      setCurrentPartySize(0);
+      setInitialPartySize(0);
       await loadSessionTables(Number(selectedSessionId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create session table");
+      setError(
+        err instanceof Error ? err.message : "Failed to create session table",
+      );
     }
   }
 
-  async function handleStatusChange(id: number, newStatus: SessionTableStatus) {
+  async function handleSyncActiveTables() {
+    if (selectedSessionId === "") return;
+
     try {
-      setActionLoadingId(id);
-      await apiPatch<SessionTableAdminSummary>(`/tables/session-tables/${id}`, {
-        status: newStatus,
-      });
-      if (selectedSessionId !== "") {
-        await loadSessionTables(Number(selectedSessionId));
-      }
+      setSyncing(true);
+      setError("");
+      const data = await apiPost<SessionTableAdminSummary[]>(
+        `/tables/session-tables/sync-active?session_id=${selectedSessionId}`,
+        {},
+      );
+      setSessionTables(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update session table");
+      setError(
+        err instanceof Error ? err.message : "Failed to sync active tables",
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleSetPartySize(
+    table: SessionTableAdminSummary,
+    newPartySize: number,
+  ) {
+    const safeSize = Math.min(table.seats, Math.max(0, newPartySize));
+
+    try {
+      setActionLoadingId(table.id);
+      setError("");
+      await apiPatch<SessionTableAdminSummary>(
+        `/tables/session-tables/${table.id}`,
+        { current_party_size: safeSize },
+      );
+      await loadSessionTables(table.session_id);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to update party size",
+      );
     } finally {
       setActionLoadingId(null);
     }
   }
 
-  async function handleDelete(id: number) {
+  async function handleAddParty(table: SessionTableAdminSummary) {
+    const remainingSeats = table.seats - table.current_party_size;
+    const requestedSize = newPartySizes[table.id] ?? 1;
+    const safeSize = Math.min(remainingSeats, Math.max(1, requestedSize));
+
+    if (remainingSeats <= 0) return;
+
     try {
-      setActionLoadingId(id);
-      await apiDelete(`/tables/session-tables/${id}`);
-      if (selectedSessionId !== "") {
-        await loadSessionTables(Number(selectedSessionId));
-      }
+      setActionLoadingId(table.id);
+      setError("");
+
+      const payload: SessionTableAddPartyPayload = {
+        party_size: safeSize,
+      };
+
+      await apiPost<SessionTableAdminSummary>(
+        `/tables/session-tables/${table.id}/add-party`,
+        payload,
+      );
+
+      setNewPartySizes((current) => ({
+        ...current,
+        [table.id]: 1,
+      }));
+      await loadSessionTables(table.session_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete session table");
+      setError(err instanceof Error ? err.message : "Failed to add party");
     } finally {
       setActionLoadingId(null);
     }
   }
 
-  async function handlePartySizeChange(id: number, newPartySize: number) {
+  async function handleDelete(table: SessionTableAdminSummary) {
+    const confirmed = window.confirm(
+      `Remove table ${table.table_code} from this session?`,
+    );
+    if (!confirmed) return;
+
     try {
-      setActionLoadingId(id);
-      await apiPatch<SessionTableAdminSummary>(`/tables/session-tables/${id}`, {
-        current_party_size: Math.max(0, newPartySize),
-      });
-      if (selectedSessionId !== "") {
-        await loadSessionTables(Number(selectedSessionId));
-      }
+      setActionLoadingId(table.id);
+      setError("");
+      await apiDelete<{ success: boolean; deleted_id: number }>(
+        `/tables/session-tables/${table.id}`,
+      );
+      await loadSessionTables(table.session_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update party size");
+      setError(
+        err instanceof Error ? err.message : "Failed to remove session table",
+      );
     } finally {
       setActionLoadingId(null);
     }
   }
-
-  const linkedTableIds = useMemo(
-    () => new Set(sessionTables.map((st) => st.table_id)),
-    [sessionTables]
-  );
-
-  const availableTablesToAdd = tables.filter((t) => !linkedTableIds.has(t.id));
 
   return (
     <div style={{ display: "grid", gap: 24 }}>
       <div>
         <h1 style={{ marginBottom: 8 }}>Session Tables</h1>
         <p style={{ marginTop: 0, color: "#4b5563" }}>
-          Link tables to a session and manage their statuses.
+          Manage capacity and shared seating. Table status is now calculated
+          automatically from guest count and checkout state.
         </p>
       </div>
 
       {loading ? <p>Loading...</p> : null}
-      {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
+      {error ? (
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 12,
+            background: "#fef2f2",
+            color: "#b91c1c",
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
 
       {!loading ? (
-        <div style={{ display: "grid", gridTemplateColumns: "420px 1fr", gap: 24, alignItems: "start" }}>
+        <>
           <section
             style={{
               background: "#fff",
@@ -160,174 +290,444 @@ export default function AdminSessionTablesPage() {
               gap: 16,
             }}
           >
-            <h3 style={{ marginTop: 0 }}>Add Session Table</h3>
-
-            <label style={{ display: "grid", gap: 6 }}>
-              <span>Session</span>
-              <select
-                value={selectedSessionId}
-                onChange={(e) => setSelectedSessionId(e.target.value ? Number(e.target.value) : "")}
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-              >
-                <option value="">Select session</option>
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ display: "grid", gap: 6 }}>
-              <span>Table</span>
-              <select
-                value={selectedTableId}
-                onChange={(e) => setSelectedTableId(e.target.value ? Number(e.target.value) : "")}
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-              >
-                <option value="">Select table</option>
-                {availableTablesToAdd.map((table) => (
-                  <option key={table.id} value={table.id}>
-                    {table.code} ({table.seats} seats)
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ display: "grid", gap: 6 }}>
-              <span>Status</span>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as SessionTableStatus)}
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-              >
-                <option value="available">available</option>
-                <option value="occupied">occupied</option>
-                <option value="ready">ready</option>
-                <option value="paying">paying</option>
-                <option value="paid">paid</option>
-              </select>
-            </label>
-
-            <label style={{ display: "grid", gap: 6 }}>
-              <span>Current Party Size</span>
-              <input
-                type="number"
-                min={0}
-                value={currentPartySize}
-                onChange={(e) => setCurrentPartySize(Number(e.target.value || 0))}
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-              />
-            </label>
-
-            <button
-              type="button"
-              onClick={handleCreate}
+            <div
               style={{
-                padding: "10px 14px",
-                borderRadius: 10,
-                border: "none",
-                background: "#111827",
-                color: "#fff",
-                cursor: "pointer",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-end",
+                gap: 12,
+                flexWrap: "wrap",
               }}
             >
-              Add Session Table
-            </button>
-          </section>
-
-          <section
-            style={{
-              background: "#fff",
-              border: "1px solid #e5e7eb",
-              borderRadius: 16,
-              padding: 20,
-              display: "grid",
-              gap: 16,
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>Linked Tables</h3>
-
-            {selectedSessionId === "" ? <p>Please select a session.</p> : null}
-            {selectedSessionId !== "" && sessionTables.length === 0 ? <p>No tables linked yet.</p> : null}
-
-            <div style={{ display: "grid", gap: 16 }}>
-              {sessionTables.map((st) => (
-                <div
-                  key={st.id}
+              <label style={{ display: "grid", gap: 6, minWidth: 260 }}>
+                <span>Session</span>
+                <select
+                  value={selectedSessionId}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                    setSelectedSessionId(
+                      e.target.value ? Number(e.target.value) : "",
+                    )
+                  }
                   style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 14,
-                    padding: 16,
-                    display: "grid",
-                    gap: 10,
+                    padding: 10,
+                    borderRadius: 10,
+                    border: "1px solid #d1d5db",
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <strong>{st.table_code}</strong>
-                    <span>{st.seats} seats</span>
-                  </div>
+                  <option value="">Select session</option>
+                  {sessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.name} ({session.status})
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-                  <div style={{ color: "#4b5563", fontSize: 14 }}>
-                    <div>Current Party Size: {st.current_party_size}</div>
-                    <div>Remaining Seats: {Math.max(0, st.seats - st.current_party_size)}</div>
-                  </div>
+              <button
+                type="button"
+                onClick={handleSyncActiveTables}
+                disabled={selectedSessionId === "" || syncing}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#2563eb",
+                  color: "#fff",
+                  cursor:
+                    selectedSessionId === "" || syncing
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity: selectedSessionId === "" || syncing ? 0.65 : 1,
+                }}
+              >
+                {syncing ? "Syncing..." : "Sync All Active Tables"}
+              </button>
+            </div>
 
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span>Status:</span>
-                    <select
-                      value={st.status}
-                      onChange={(e) => handleStatusChange(st.id, e.target.value as SessionTableStatus)}
-                      disabled={actionLoadingId === st.id}
-                      style={{ padding: 8, borderRadius: 10, border: "1px solid #d1d5db" }}
+            <div
+              style={{
+                borderTop: "1px solid #e5e7eb",
+                paddingTop: 16,
+                display: "grid",
+                gap: 12,
+              }}
+            >
+              <h3 style={{ margin: 0 }}>Add One Table Manually</h3>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(180px, 1fr) 160px auto",
+                  gap: 12,
+                  alignItems: "end",
+                }}
+              >
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span>Table</span>
+                  <select
+                    value={selectedTableId}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                      setSelectedTableId(
+                        e.target.value ? Number(e.target.value) : "",
+                      );
+                      setInitialPartySize(0);
+                    }}
+                    style={{
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid #d1d5db",
+                    }}
+                  >
+                    <option value="">Select table</option>
+                    {availableTablesToAdd.map((table) => (
+                      <option key={table.id} value={table.id}>
+                        {table.code} · {table.seats} seats · {table.is_shareable ? "shareable" : "private"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span>Initial guests</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={selectedTable?.seats ?? 0}
+                    value={initialPartySize}
+                    disabled={!selectedTable}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const maximum = selectedTable?.seats ?? 0;
+                      setInitialPartySize(
+                        Math.min(
+                          maximum,
+                          Math.max(0, Number(e.target.value || 0)),
+                        ),
+                      );
+                    }}
+                    style={{
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid #d1d5db",
+                    }}
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleCreate}
+                  disabled={
+                    selectedSessionId === "" || selectedTableId === ""
+                  }
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    border: "none",
+                    background: "#111827",
+                    color: "#fff",
+                    cursor:
+                      selectedSessionId === "" || selectedTableId === ""
+                        ? "not-allowed"
+                        : "pointer",
+                    opacity:
+                      selectedSessionId === "" || selectedTableId === ""
+                        ? 0.65
+                        : 1,
+                  }}
+                >
+                  Add Table
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section style={{ display: "grid", gap: 14 }}>
+            <h2 style={{ marginBottom: 0 }}>Linked Tables</h2>
+
+            {selectedSessionId === "" ? (
+              <p>Please select a session.</p>
+            ) : null}
+
+            {selectedSessionId !== "" && sessionTables.length === 0 ? (
+              <div
+                style={{
+                  background: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 16,
+                  padding: 20,
+                }}
+              >
+                No tables are linked. Click <strong>Sync All Active Tables</strong>.
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+                gap: 16,
+              }}
+            >
+              {sessionTables.map((table) => {
+                const remainingSeats = Math.max(
+                  0,
+                  table.seats - table.current_party_size,
+                );
+                const isFull = remainingSeats === 0;
+                const canAddAnotherParty =
+                  table.status !== "paying" &&
+                  !isFull &&
+                  (table.current_party_size === 0 || table.is_shareable);
+                const status = getSimpleStatus(table);
+                const isBusy = actionLoadingId === table.id;
+
+                return (
+                  <article
+                    key={table.id}
+                    style={{
+                      background: "#fff",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 16,
+                      padding: 18,
+                      display: "grid",
+                      gap: 16,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: 12,
+                      }}
                     >
-                      <option value="available">available</option>
-                      <option value="occupied">occupied</option>
-                      <option value="ready">ready</option>
-                      <option value="paying">paying</option>
-                      <option value="paid">paid</option>
-                    </select>
+                      <div>
+                        <strong style={{ fontSize: 25 }}>
+                          {table.table_code}
+                        </strong>
+                        <div
+                          style={{
+                            color: "#6b7280",
+                            marginTop: 5,
+                            fontSize: 14,
+                          }}
+                        >
+                          Capacity: {table.seats}
+                        </div>
+                      </div>
 
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <span>Party Size:</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={st.current_party_size}
-                        onChange={(e) =>
-                          handlePartySizeChange(st.id, Number(e.target.value || 0))
-                        }
-                        disabled={actionLoadingId === st.id}
+                      <div
                         style={{
-                          width: 90,
-                          padding: 8,
+                          display: "flex",
+                          gap: 6,
+                          flexWrap: "wrap",
+                          justifyContent: "flex-end",
+                        }}
+                      >
+                        <span
+                          style={{
+                            padding: "4px 9px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            background: status.background,
+                            color: status.color,
+                          }}
+                        >
+                          {status.label}
+                        </span>
+                        <span
+                          style={{
+                            padding: "4px 9px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            background: table.is_shareable
+                              ? "#ede9fe"
+                              : "#f3f4f6",
+                            color: table.is_shareable
+                              ? "#6d28d9"
+                              : "#374151",
+                          }}
+                        >
+                          {table.is_shareable ? "Shareable" : "Private"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(3, 1fr)",
+                        gap: 8,
+                      }}
+                    >
+                      <div
+                        style={{
+                          background: "#f9fafb",
+                          borderRadius: 10,
+                          padding: 10,
+                          textAlign: "center",
+                        }}
+                      >
+                        <strong style={{ display: "block", fontSize: 20 }}>
+                          {table.current_party_size}
+                        </strong>
+                        <span style={{ color: "#6b7280", fontSize: 12 }}>
+                          Guests
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          background: "#f9fafb",
+                          borderRadius: 10,
+                          padding: 10,
+                          textAlign: "center",
+                        }}
+                      >
+                        <strong style={{ display: "block", fontSize: 20 }}>
+                          {remainingSeats}
+                        </strong>
+                        <span style={{ color: "#6b7280", fontSize: 12 }}>
+                          Open seats
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          background: "#f9fafb",
+                          borderRadius: 10,
+                          padding: 10,
+                          textAlign: "center",
+                        }}
+                      >
+                        <strong style={{ display: "block", fontSize: 20 }}>
+                          {table.seats}
+                        </strong>
+                        <span style={{ color: "#6b7280", fontSize: 12 }}>
+                          Capacity
+                        </span>
+                      </div>
+                    </div>
+
+                    <label style={{ display: "grid", gap: 6 }}>
+                      <span>Correct total guest count</span>
+                      <select
+                        value={table.current_party_size}
+                        disabled={isBusy || table.status === "paying"}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                          handleSetPartySize(table, Number(e.target.value))
+                        }
+                        style={{
+                          padding: 10,
                           borderRadius: 10,
                           border: "1px solid #d1d5db",
                         }}
-                      />
+                      >
+                        {Array.from(
+                          { length: table.seats + 1 },
+                          (_, number) => (
+                            <option key={number} value={number}>
+                              {number}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+
+                    <div
+                      style={{
+                        borderTop: "1px solid #e5e7eb",
+                        paddingTop: 14,
+                        display: "grid",
+                        gap: 9,
+                      }}
+                    >
+                      <strong>Add another party</strong>
+
+                      {isFull ? (
+                        <span style={{ color: "#b91c1c", fontSize: 14 }}>
+                          This table is full.
+                        </span>
+                      ) : table.current_party_size > 0 &&
+                        !table.is_shareable ? (
+                        <span style={{ color: "#92400e", fontSize: 14 }}>
+                          Shared seating is disabled, so no second party can be
+                          assigned.
+                        </span>
+                      ) : table.status === "paying" ? (
+                        <span style={{ color: "#92400e", fontSize: 14 }}>
+                          This table is checking out.
+                        </span>
+                      ) : (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr auto",
+                            gap: 8,
+                          }}
+                        >
+                          <input
+                            type="number"
+                            min={1}
+                            max={remainingSeats}
+                            value={newPartySizes[table.id] ?? 1}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                              setNewPartySizes((current) => ({
+                                ...current,
+                                [table.id]: Math.min(
+                                  remainingSeats,
+                                  Math.max(1, Number(e.target.value || 1)),
+                                ),
+                              }))
+                            }
+                            style={{
+                              padding: 10,
+                              borderRadius: 10,
+                              border: "1px solid #d1d5db",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleAddParty(table)}
+                            disabled={!canAddAnotherParty || isBusy}
+                            style={{
+                              padding: "10px 13px",
+                              borderRadius: 10,
+                              border: "none",
+                              background: "#2563eb",
+                              color: "#fff",
+                              cursor:
+                                !canAddAnotherParty || isBusy
+                                  ? "not-allowed"
+                                  : "pointer",
+                              opacity:
+                                !canAddAnotherParty || isBusy ? 0.65 : 1,
+                            }}
+                          >
+                            Add Party
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <button
                       type="button"
-                      onClick={() => handleDelete(st.id)}
-                      disabled={actionLoadingId === st.id}
+                      onClick={() => handleDelete(table)}
+                      disabled={isBusy}
                       style={{
-                        padding: "8px 12px",
+                        padding: "9px 12px",
                         borderRadius: 10,
-                        border: "none",
-                        background: "#dc2626",
-                        color: "#fff",
-                        cursor: "pointer",
+                        border: "1px solid #fecaca",
+                        background: "#fff",
+                        color: "#b91c1c",
+                        cursor: isBusy ? "not-allowed" : "pointer",
                       }}
                     >
-                      Delete
+                      Remove From Session
                     </button>
-                  </div>
-                </div>
-              ))}
+                  </article>
+                );
+              })}
             </div>
           </section>
-        </div>
+        </>
       ) : null}
     </div>
   );

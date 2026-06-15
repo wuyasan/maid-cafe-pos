@@ -14,9 +14,19 @@ class Table(Base, TimestampMixin):
     __tablename__ = "tables"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(10), unique=True, nullable=False, index=True)
+    code: Mapped[str] = mapped_column(
+        String(10),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
     seats: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_shareable: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
 
     session_tables: Mapped[List["SessionTable"]] = relationship(
         "SessionTable",
@@ -33,15 +43,20 @@ class SessionTable(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False)
-    table_id: Mapped[int] = mapped_column(ForeignKey("tables.id"), nullable=False)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("sessions.id"),
+        nullable=False,
+    )
+    table_id: Mapped[int] = mapped_column(
+        ForeignKey("tables.id"),
+        nullable=False,
+    )
 
     status: Mapped[SessionTableStatus] = mapped_column(
         Enum(SessionTableStatus, name="session_table_status"),
         default=SessionTableStatus.available,
         nullable=False,
     )
-
     current_party_size: Mapped[int] = mapped_column(
         Integer,
         default=0,
