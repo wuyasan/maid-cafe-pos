@@ -7,12 +7,15 @@ from app.models.enums import OrderSource, ProductionStation, ProductionStatus
 
 
 class ProductionQueueItemRead(BaseModel):
+    production_task_id: int
     order_item_id: int
     order_id: int
     bill_id: int
     table_code: str
-    menu_item_id: int
-    menu_item_name: str
+    parent_menu_item_id: int
+    parent_menu_item_name: str
+    source_menu_item_id: Optional[int] = None
+    display_name: str
     quantity: int
     notes: Optional[str] = None
     source: OrderSource

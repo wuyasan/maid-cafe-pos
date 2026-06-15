@@ -1,11 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
-from app.models.enums import MenuItemType
-from app.models.menu import MenuCategory, MenuItem, MaidServicePricing
+from app.models.enums import MenuItemType, ProductionStation
+from app.models.menu import (
+    MaidServicePricing,
+    MenuCategory,
+    MenuItem,
+    MenuItemComponent,
+)
 from app.schemas.menu import (
+    BundleComponentRead,
+    BundleComponentWrite,
     MaidServicePricingCreate,
     MaidServicePricingRead,
     MaidServicePricingUpdate,
@@ -23,19 +30,144 @@ from app.schemas.menu import (
 router = APIRouter(prefix="/menu", tags=["menu"])
 
 
+def _item_query():
+    return select(MenuItem).options(
+        joinedload(MenuItem.maid_service_pricing),
+        joinedload(MenuItem.category),
+        selectinload(MenuItem.bundle_components)
+        .joinedload(MenuItemComponent.component_menu_item)
+        .joinedload(MenuItem.category),
+    )
+
+
+def _component_reads(item: MenuItem) -> list[BundleComponentRead]:
+    result: list[BundleComponentRead] = []
+    for link in item.bundle_components:
+        component = link.component_menu_item
+        station = (
+            component.category.production_station
+            if component.category is not None
+            else ProductionStation.none
+        )
+        result.append(
+            BundleComponentRead(
+                id=link.id,
+                menu_item_id=component.id,
+                menu_item_name=component.name,
+                quantity=link.quantity,
+                production_station=station,
+            )
+        )
+    return result
+
+
+def _item_read(item: MenuItem) -> MenuItemWithPricingRead:
+    return MenuItemWithPricingRead(
+        id=item.id,
+        name=item.name,
+        description=item.description,
+        price=item.price,
+        image_url=item.image_url,
+        category_id=item.category_id,
+        item_type=item.item_type,
+        is_active=item.is_active,
+        is_bundle=item.is_bundle,
+        created_at=item.created_at,
+        maid_service_pricing=item.maid_service_pricing,
+        components=_component_reads(item),
+    )
+
+
+def _load_item(db: Session, item_id: int) -> MenuItem | None:
+    return (
+        db.execute(_item_query().where(MenuItem.id == item_id))
+        .unique()
+        .scalars()
+        .first()
+    )
+
+
+def _validate_category(db: Session, category_id: int | None) -> None:
+    if category_id is None:
+        return
+    if db.get(MenuCategory, category_id) is None:
+        raise HTTPException(status_code=404, detail="Category not found.")
+
+
+def _validate_bundle_components(
+    db: Session,
+    parent_item_id: int | None,
+    components: list[BundleComponentWrite],
+) -> None:
+    if not components:
+        raise HTTPException(
+            status_code=400,
+            detail="A bundle must contain at least one component.",
+        )
+
+    seen: set[int] = set()
+    for component in components:
+        if component.menu_item_id in seen:
+            raise HTTPException(
+                status_code=400,
+                detail="The same component cannot be added twice.",
+            )
+        seen.add(component.menu_item_id)
+
+        if parent_item_id is not None and component.menu_item_id == parent_item_id:
+            raise HTTPException(
+                status_code=400,
+                detail="A bundle cannot contain itself.",
+            )
+
+        component_item = db.get(MenuItem, component.menu_item_id)
+        if not component_item:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Component menu item {component.menu_item_id} not found.",
+            )
+        if component_item.item_type == MenuItemType.maid_service:
+            raise HTTPException(
+                status_code=400,
+                detail="Maid service items cannot be bundle components.",
+            )
+        if component_item.is_bundle:
+            raise HTTPException(
+                status_code=400,
+                detail="Nested bundles are not supported.",
+            )
+
+
+def _replace_components(
+    db: Session,
+    item: MenuItem,
+    components: list[BundleComponentWrite],
+) -> None:
+    for existing in list(item.bundle_components):
+        db.delete(existing)
+    db.flush()
+
+    for component in components:
+        db.add(
+            MenuItemComponent(
+                parent_menu_item_id=item.id,
+                component_menu_item_id=component.menu_item_id,
+                quantity=component.quantity,
+            )
+        )
+
+
 @router.get("/categories", response_model=list[MenuCategoryRead])
 def list_menu_categories(db: Session = Depends(get_db)):
     categories = list(
         db.execute(
-            select(MenuCategory)
-            .options(joinedload(MenuCategory.items))
-            .order_by(MenuCategory.display_order.asc(), MenuCategory.id.asc())
+            select(MenuCategory).order_by(
+                MenuCategory.display_order.asc(), MenuCategory.id.asc()
+            )
         )
-        .unique()
         .scalars()
         .all()
     )
-
     return [
         MenuCategoryRead(
             id=category.id,
@@ -43,7 +175,7 @@ def list_menu_categories(db: Session = Depends(get_db)):
             display_order=category.display_order,
             production_station=category.production_station,
             created_at=category.created_at,
-            item_count=len(category.items),
+            item_count=len(category.items or []),
         )
         for category in categories
     ]
@@ -54,15 +186,10 @@ def create_menu_category(
     payload: MenuCategoryCreate,
     db: Session = Depends(get_db),
 ):
-    category = MenuCategory(
-        name=payload.name,
-        display_order=payload.display_order,
-        production_station=payload.production_station,
-    )
+    category = MenuCategory(**payload.model_dump())
     db.add(category)
     db.commit()
     db.refresh(category)
-
     return MenuCategoryRead(
         id=category.id,
         name=category.name,
@@ -82,21 +209,17 @@ def update_menu_category(
     category = db.get(MenuCategory, category_id)
     if not category:
         raise HTTPException(status_code=404, detail="Category not found.")
-
-    update_data = payload.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
+    for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(category, key, value)
-
     db.commit()
     db.refresh(category)
-
     return MenuCategoryRead(
         id=category.id,
         name=category.name,
         display_order=category.display_order,
         production_station=category.production_station,
         created_at=category.created_at,
-        item_count=len(category.items),
+        item_count=len(category.items or []),
     )
 
 
@@ -105,8 +228,7 @@ def delete_menu_category(category_id: int, db: Session = Depends(get_db)):
     category = db.get(MenuCategory, category_id)
     if not category:
         raise HTTPException(status_code=404, detail="Category not found.")
-
-    item_count = len(category.items) if category.items is not None else 0
+    item_count = len(category.items or [])
     if item_count > 0:
         raise HTTPException(
             status_code=400,
@@ -115,42 +237,39 @@ def delete_menu_category(category_id: int, db: Session = Depends(get_db)):
                 f"{item_count} menu item(s)."
             ),
         )
-
     db.delete(category)
     db.commit()
     return {"success": True, "deleted_id": category_id}
 
 
-@router.get("/items", response_model=list[MenuItemRead])
+@router.get("/items", response_model=list[MenuItemWithPricingRead])
 def list_menu_items(db: Session = Depends(get_db)):
-    stmt = (
-        select(MenuItem)
-        .options(joinedload(MenuItem.maid_service_pricing))
-        .order_by(MenuItem.id.desc())
+    items = list(
+        db.execute(_item_query().order_by(MenuItem.id.desc()))
+        .unique()
+        .scalars()
+        .all()
     )
-    return list(db.execute(stmt).unique().scalars().all())
+    return [_item_read(item) for item in items]
 
 
 @router.post("/items", response_model=MenuItemRead)
 def create_menu_item(payload: MenuItemCreate, db: Session = Depends(get_db)):
-    if payload.category_id is not None:
-        category = db.get(MenuCategory, payload.category_id)
-        if not category:
-            raise HTTPException(status_code=404, detail="Category not found.")
+    _validate_category(db, payload.category_id)
+    if payload.item_type == MenuItemType.maid_service and payload.is_bundle:
+        raise HTTPException(status_code=400, detail="Maid service cannot be a bundle.")
+    if payload.is_bundle:
+        _validate_bundle_components(db, None, payload.components)
 
-    item = MenuItem(
-        name=payload.name,
-        description=payload.description,
-        price=payload.price,
-        image_url=payload.image_url,
-        category_id=payload.category_id,
-        item_type=payload.item_type,
-        is_active=payload.is_active,
-    )
+    item_data = payload.model_dump(exclude={"components"})
+    item = MenuItem(**item_data)
     db.add(item)
+    db.flush()
+    if payload.is_bundle:
+        _replace_components(db, item, payload.components)
     db.commit()
-    db.refresh(item)
-    return item
+    loaded = _load_item(db, item.id)
+    return _item_read(loaded)
 
 
 @router.patch("/items/{item_id}", response_model=MenuItemRead)
@@ -159,22 +278,38 @@ def update_menu_item(
     payload: MenuItemUpdate,
     db: Session = Depends(get_db),
 ):
-    item = db.get(MenuItem, item_id)
+    item = _load_item(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Menu item not found.")
 
     update_data = payload.model_dump(exclude_unset=True)
-    if "category_id" in update_data and update_data["category_id"] is not None:
-        category = db.get(MenuCategory, update_data["category_id"])
-        if not category:
-            raise HTTPException(status_code=404, detail="Category not found.")
+    components = update_data.pop("components", None)
+    _validate_category(db, update_data.get("category_id", item.category_id))
+
+    final_item_type = update_data.get("item_type", item.item_type)
+    final_is_bundle = update_data.get("is_bundle", item.is_bundle)
+    if final_item_type == MenuItemType.maid_service and final_is_bundle:
+        raise HTTPException(status_code=400, detail="Maid service cannot be a bundle.")
+    if final_is_bundle:
+        final_components = components if components is not None else [
+            BundleComponentWrite(
+                menu_item_id=link.component_menu_item_id,
+                quantity=link.quantity,
+            )
+            for link in item.bundle_components
+        ]
+        _validate_bundle_components(db, item.id, final_components)
 
     for key, value in update_data.items():
         setattr(item, key, value)
 
+    if not final_is_bundle:
+        _replace_components(db, item, [])
+    elif components is not None:
+        _replace_components(db, item, components)
+
     db.commit()
-    db.refresh(item)
-    return item
+    return _item_read(_load_item(db, item.id))
 
 
 @router.delete("/items/{item_id}")
@@ -182,7 +317,12 @@ def delete_menu_item(item_id: int, db: Session = Depends(get_db)):
     item = db.get(MenuItem, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Menu item not found.")
-
+    used_count = len(item.used_in_bundles or [])
+    if used_count:
+        raise HTTPException(
+            status_code=400,
+            detail="This item is used by a bundle. Remove it from the bundle first.",
+        )
     db.delete(item)
     db.commit()
     return {"success": True, "deleted_id": item_id}
@@ -190,12 +330,11 @@ def delete_menu_item(item_id: int, db: Session = Depends(get_db)):
 
 @router.get("/maid-service-pricing", response_model=list[MaidServicePricingRead])
 def list_maid_service_pricing(db: Session = Depends(get_db)):
-    stmt = (
-        select(MaidServicePricing)
-        .options(joinedload(MaidServicePricing.menu_item))
-        .order_by(MaidServicePricing.id.desc())
+    return list(
+        db.execute(select(MaidServicePricing).order_by(MaidServicePricing.id.desc()))
+        .scalars()
+        .all()
     )
-    return list(db.execute(stmt).unique().scalars().all())
 
 
 @router.post("/maid-service-pricing", response_model=MaidServicePricingRead)
@@ -211,23 +350,14 @@ def create_maid_service_pricing(
             status_code=400,
             detail="Pricing can only be set for maid_service items.",
         )
-
     existing = db.execute(
         select(MaidServicePricing).where(
             MaidServicePricing.menu_item_id == payload.menu_item_id
         )
     ).scalars().first()
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Pricing already exists for this menu item.",
-        )
-
-    pricing = MaidServicePricing(
-        menu_item_id=payload.menu_item_id,
-        additional_maid_price=payload.additional_maid_price,
-        all_maids_price=payload.all_maids_price,
-    )
+        raise HTTPException(status_code=400, detail="Pricing already exists.")
+    pricing = MaidServicePricing(**payload.model_dump())
     db.add(pricing)
     db.commit()
     db.refresh(pricing)
@@ -246,33 +376,8 @@ def update_maid_service_pricing(
     pricing = db.get(MaidServicePricing, pricing_id)
     if not pricing:
         raise HTTPException(status_code=404, detail="Pricing not found.")
-
-    update_data = payload.model_dump(exclude_unset=True)
-    if "menu_item_id" in update_data and update_data["menu_item_id"] is not None:
-        item = db.get(MenuItem, update_data["menu_item_id"])
-        if not item:
-            raise HTTPException(status_code=404, detail="Menu item not found.")
-        if item.item_type != MenuItemType.maid_service:
-            raise HTTPException(
-                status_code=400,
-                detail="Pricing can only be set for maid_service items.",
-            )
-
-        existing = db.execute(
-            select(MaidServicePricing).where(
-                MaidServicePricing.menu_item_id == update_data["menu_item_id"],
-                MaidServicePricing.id != pricing_id,
-            )
-        ).scalars().first()
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail="Another pricing already exists for this menu item.",
-            )
-
-    for key, value in update_data.items():
+    for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(pricing, key, value)
-
     db.commit()
     db.refresh(pricing)
     return pricing
@@ -286,7 +391,6 @@ def delete_maid_service_pricing(
     pricing = db.get(MaidServicePricing, pricing_id)
     if not pricing:
         raise HTTPException(status_code=404, detail="Pricing not found.")
-
     db.delete(pricing)
     db.commit()
     return {"success": True, "deleted_id": pricing_id}
@@ -297,10 +401,11 @@ def create_menu_item_with_pricing(
     payload: MenuItemWithPricingCreate,
     db: Session = Depends(get_db),
 ):
-    if payload.category_id is not None:
-        category = db.get(MenuCategory, payload.category_id)
-        if not category:
-            raise HTTPException(status_code=404, detail="Category not found.")
+    _validate_category(db, payload.category_id)
+    if payload.item_type == MenuItemType.maid_service and payload.is_bundle:
+        raise HTTPException(status_code=400, detail="Maid service cannot be a bundle.")
+    if payload.is_bundle:
+        _validate_bundle_components(db, None, payload.components)
 
     item = MenuItem(
         name=payload.name,
@@ -310,6 +415,7 @@ def create_menu_item_with_pricing(
         category_id=payload.category_id,
         item_type=payload.item_type,
         is_active=payload.is_active,
+        is_bundle=payload.is_bundle,
     )
     db.add(item)
     db.flush()
@@ -322,18 +428,11 @@ def create_menu_item_with_pricing(
                 all_maids_price=payload.all_maids_price,
             )
         )
+    if payload.is_bundle:
+        _replace_components(db, item, payload.components)
 
     db.commit()
-    return (
-        db.execute(
-            select(MenuItem)
-            .options(joinedload(MenuItem.maid_service_pricing))
-            .where(MenuItem.id == item.id)
-        )
-        .unique()
-        .scalars()
-        .first()
-    )
+    return _item_read(_load_item(db, item.id))
 
 
 @router.patch(
@@ -345,67 +444,57 @@ def update_menu_item_with_pricing(
     payload: MenuItemWithPricingUpdate,
     db: Session = Depends(get_db),
 ):
-    item = db.get(MenuItem, item_id)
+    item = _load_item(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Menu item not found.")
 
     update_data = payload.model_dump(exclude_unset=True)
-    if "category_id" in update_data and update_data["category_id"] is not None:
-        category = db.get(MenuCategory, update_data["category_id"])
-        if not category:
-            raise HTTPException(status_code=404, detail="Category not found.")
+    components = update_data.pop("components", None)
+    additional_maid_price = update_data.pop("additional_maid_price", None)
+    all_maids_price_was_sent = "all_maids_price" in payload.model_fields_set
+    all_maids_price = update_data.pop("all_maids_price", None)
 
-    item_fields = {
-        "name",
-        "description",
-        "price",
-        "image_url",
-        "category_id",
-        "item_type",
-        "is_active",
-    }
+    _validate_category(db, update_data.get("category_id", item.category_id))
+    final_item_type = update_data.get("item_type", item.item_type)
+    final_is_bundle = update_data.get("is_bundle", item.is_bundle)
+
+    if final_item_type == MenuItemType.maid_service and final_is_bundle:
+        raise HTTPException(status_code=400, detail="Maid service cannot be a bundle.")
+    if final_is_bundle:
+        final_components = components if components is not None else [
+            BundleComponentWrite(
+                menu_item_id=link.component_menu_item_id,
+                quantity=link.quantity,
+            )
+            for link in item.bundle_components
+        ]
+        _validate_bundle_components(db, item.id, final_components)
+
     for key, value in update_data.items():
-        if key in item_fields:
-            setattr(item, key, value)
+        setattr(item, key, value)
 
-    existing_pricing = db.execute(
-        select(MaidServicePricing).where(
-            MaidServicePricing.menu_item_id == item.id
-        )
-    ).scalars().first()
-
-    if item.item_type == MenuItemType.maid_service:
+    existing_pricing = item.maid_service_pricing
+    if final_item_type == MenuItemType.maid_service:
         if existing_pricing:
-            if (
-                "additional_maid_price" in update_data
-                and update_data["additional_maid_price"] is not None
-            ):
-                existing_pricing.additional_maid_price = update_data[
-                    "additional_maid_price"
-                ]
-            if "all_maids_price" in update_data:
-                existing_pricing.all_maids_price = update_data["all_maids_price"]
+            if additional_maid_price is not None:
+                existing_pricing.additional_maid_price = additional_maid_price
+            if all_maids_price_was_sent:
+                existing_pricing.all_maids_price = all_maids_price
         else:
             db.add(
                 MaidServicePricing(
                     menu_item_id=item.id,
-                    additional_maid_price=(
-                        update_data.get("additional_maid_price") or 0
-                    ),
-                    all_maids_price=update_data.get("all_maids_price"),
+                    additional_maid_price=additional_maid_price or 0,
+                    all_maids_price=all_maids_price,
                 )
             )
     elif existing_pricing:
         db.delete(existing_pricing)
 
+    if not final_is_bundle:
+        _replace_components(db, item, [])
+    elif components is not None:
+        _replace_components(db, item, components)
+
     db.commit()
-    return (
-        db.execute(
-            select(MenuItem)
-            .options(joinedload(MenuItem.maid_service_pricing))
-            .where(MenuItem.id == item.id)
-        )
-        .unique()
-        .scalars()
-        .first()
-    )
+    return _item_read(_load_item(db, item.id))

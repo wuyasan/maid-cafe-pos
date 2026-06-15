@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -51,6 +51,7 @@ class MenuItem(Base, TimestampMixin):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_bundle: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     category: Mapped[Optional["MenuCategory"]] = relationship(
         "MenuCategory",
@@ -65,6 +66,53 @@ class MenuItem(Base, TimestampMixin):
     order_items: Mapped[List["OrderItem"]] = relationship(
         "OrderItem",
         back_populates="menu_item",
+    )
+    bundle_components: Mapped[List["MenuItemComponent"]] = relationship(
+        "MenuItemComponent",
+        foreign_keys="MenuItemComponent.parent_menu_item_id",
+        back_populates="parent_menu_item",
+        cascade="all, delete-orphan",
+        order_by="MenuItemComponent.id",
+    )
+    used_in_bundles: Mapped[List["MenuItemComponent"]] = relationship(
+        "MenuItemComponent",
+        foreign_keys="MenuItemComponent.component_menu_item_id",
+        back_populates="component_menu_item",
+    )
+
+
+class MenuItemComponent(Base, TimestampMixin):
+    __tablename__ = "menu_item_components"
+    __table_args__ = (
+        UniqueConstraint(
+            "parent_menu_item_id",
+            "component_menu_item_id",
+            name="uq_menu_item_component",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parent_menu_item_id: Mapped[int] = mapped_column(
+        ForeignKey("menu_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    component_menu_item_id: Mapped[int] = mapped_column(
+        ForeignKey("menu_items.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    parent_menu_item: Mapped["MenuItem"] = relationship(
+        "MenuItem",
+        foreign_keys=[parent_menu_item_id],
+        back_populates="bundle_components",
+    )
+    component_menu_item: Mapped["MenuItem"] = relationship(
+        "MenuItem",
+        foreign_keys=[component_menu_item_id],
+        back_populates="used_in_bundles",
     )
 
 

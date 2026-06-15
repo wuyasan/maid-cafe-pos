@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
 import { apiGet, apiPatch } from "@/lib/api";
 import type {
   ProductionQueueItem,
@@ -10,9 +9,7 @@ import type {
   ProductionStatus,
 } from "@/lib/productionTypes";
 
-type Props = {
-  station: ProductionStation;
-};
+type Props = { station: ProductionStation };
 
 const stationLabels: Record<ProductionStation, string> = {
   kitchen: "Kitchen",
@@ -60,13 +57,17 @@ export default function ProductionQueueView({ station }: Props) {
     return () => window.clearInterval(timer);
   }, [station, includeCompleted]);
 
-  async function setStatus(item: ProductionQueueItem, status: ProductionStatus) {
+  async function setStatus(
+    item: ProductionQueueItem,
+    status: ProductionStatus,
+  ) {
     try {
-      setUpdatingId(item.order_item_id);
+      setUpdatingId(item.production_task_id);
       setError("");
-      await apiPatch(`/staff/production/items/${item.order_item_id}/status`, {
-        production_status: status,
-      });
+      await apiPatch(
+        `/staff/production/tasks/${item.production_task_id}/status`,
+        { production_status: status },
+      );
       await load(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update item");
@@ -86,16 +87,16 @@ export default function ProductionQueueView({ station }: Props) {
   }, [data]);
 
   return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+    <main style={{ padding: 24, display: "grid", gap: 20 }}>
+      <header style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <h1 style={{ marginBottom: 6 }}>{stationLabels[station]} Queue</h1>
-          <p style={{ margin: 0, color: "#6b7280" }}>
+          <h1 style={{ margin: 0 }}>{stationLabels[station]} Queue</h1>
+          <p style={{ color: "#6b7280" }}>
             {data ? `Current Session: ${data.session_name}` : "Current production queue"}
           </p>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <input
               type="checkbox"
               checked={includeCompleted}
@@ -103,44 +104,52 @@ export default function ProductionQueueView({ station }: Props) {
             />
             Show completed
           </label>
-          <button type="button" onClick={() => load(true)} style={{ padding: "10px 14px", borderRadius: 10 }}>
+          <button onClick={() => load(true)} style={{ padding: "10px 14px", borderRadius: 10 }}>
             Refresh
           </button>
         </div>
-      </div>
+      </header>
 
-      {error ? <div style={{ padding: 12, background: "#fee2e2", color: "#991b1b", borderRadius: 12 }}>{error}</div> : null}
+      {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
       {loading ? <p>Loading...</p> : null}
       {!loading && groups.length === 0 ? (
-        <div style={{ padding: 24, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16 }}>
-          No {stationLabels[station].toLowerCase()} items are waiting.
-        </div>
+        <p>No {stationLabels[station].toLowerCase()} items are waiting.</p>
       ) : null}
 
       {groups.map(([tableCode, items]) => (
-        <section key={tableCode} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 18 }}>
+        <section key={tableCode} style={{ border: "1px solid #e5e7eb", borderRadius: 16, padding: 16 }}>
           <h2 style={{ marginTop: 0 }}>Table {tableCode}</h2>
           <div style={{ display: "grid", gap: 12 }}>
-            {items.map((item) => (
-              <article key={item.order_item_id} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 14, display: "grid", gap: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <strong style={{ fontSize: 18 }}>{item.quantity} × {item.menu_item_name}</strong>
-                  <span>{timeLabel(item.ordered_at)}</span>
-                </div>
-                <div style={{ color: "#6b7280" }}>
-                  {item.source === "staff" ? "Staff order" : "Customer QR"} · {statusLabel(item.production_status)}
-                </div>
-                {item.notes ? <div style={{ padding: 10, background: "#fef3c7", borderRadius: 10 }}><strong>Note:</strong> {item.notes}</div> : null}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button disabled={updatingId === item.order_item_id || item.production_status === "pending"} onClick={() => setStatus(item, "pending")}>Pending</button>
-                  <button disabled={updatingId === item.order_item_id || item.production_status === "preparing"} onClick={() => setStatus(item, "preparing")}>Start</button>
-                  <button disabled={updatingId === item.order_item_id || item.production_status === "completed"} onClick={() => setStatus(item, "completed")}>Complete</button>
-                </div>
-              </article>
-            ))}
+            {items.map((item) => {
+              const isBundleComponent = item.parent_menu_item_name !== item.display_name;
+              return (
+                <article key={item.production_task_id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <strong>{item.quantity} × {item.display_name}</strong>
+                      {isBundleComponent ? (
+                        <div style={{ color: "#7c3aed", fontSize: 13, marginTop: 4 }}>
+                          From combo: {item.parent_menu_item_name}
+                        </div>
+                      ) : null}
+                    </div>
+                    <span>{timeLabel(item.ordered_at)}</span>
+                  </div>
+                  <p style={{ color: "#6b7280", marginBottom: 8 }}>
+                    {item.source === "staff" ? "Staff order" : "Customer QR"} · {statusLabel(item.production_status)}
+                  </p>
+                  {item.notes ? <p><strong>Note:</strong> {item.notes}</p> : null}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button disabled={updatingId === item.production_task_id} onClick={() => setStatus(item, "pending")}>Pending</button>
+                    <button disabled={updatingId === item.production_task_id} onClick={() => setStatus(item, "preparing")}>Start</button>
+                    <button disabled={updatingId === item.production_task_id} onClick={() => setStatus(item, "completed")}>Complete</button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       ))}
-    </div>
+    </main>
   );
 }

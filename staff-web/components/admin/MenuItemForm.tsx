@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type {
+  BundleComponentPayload,
   MenuCategoryItem,
   MenuItemCreatePayload,
   MenuItemRecord,
@@ -11,6 +12,7 @@ import type {
 
 type Props = {
   categories: MenuCategoryItem[];
+  allItems: MenuItemRecord[];
   editingItem: MenuItemRecord | null;
   onCreate: (payload: MenuItemCreatePayload) => Promise<void>;
   onUpdate: (itemId: number, payload: MenuItemUpdatePayload) => Promise<void>;
@@ -19,6 +21,7 @@ type Props = {
 
 export default function MenuItemForm({
   categories,
+  allItems,
   editingItem,
   onCreate,
   onUpdate,
@@ -31,21 +34,33 @@ export default function MenuItemForm({
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [itemType, setItemType] = useState<MenuItemType>("regular");
   const [isActive, setIsActive] = useState(true);
-
+  const [isBundle, setIsBundle] = useState(false);
+  const [components, setComponents] = useState<BundleComponentPayload[]>([]);
   const [additionalMaidPrice, setAdditionalMaidPrice] = useState("0.00");
   const [allMaidsPrice, setAllMaidsPrice] = useState("");
-
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const maidServiceCategory = useMemo(
     () => categories.find((c) => c.name.trim().toLowerCase() === "maid service"),
-    [categories]
+    [categories],
   );
 
   const regularCategories = useMemo(
     () => categories.filter((c) => c.name.trim().toLowerCase() !== "maid service"),
-    [categories]
+    [categories],
+  );
+
+  const componentChoices = useMemo(
+    () =>
+      allItems.filter(
+        (item) =>
+          item.id !== editingItem?.id &&
+          item.item_type === "regular" &&
+          !item.is_bundle &&
+          item.is_active,
+      ),
+    [allItems, editingItem],
   );
 
   useEffect(() => {
@@ -57,16 +72,19 @@ export default function MenuItemForm({
       setCategoryId(editingItem.category_id ?? "");
       setItemType(editingItem.item_type);
       setIsActive(editingItem.is_active);
-
-      if (editingItem.maid_service_pricing) {
-        setAdditionalMaidPrice(
-          editingItem.maid_service_pricing.additional_maid_price ?? "0.00"
-        );
-        setAllMaidsPrice(editingItem.maid_service_pricing.all_maids_price ?? "");
-      } else {
-        setAdditionalMaidPrice("0.00");
-        setAllMaidsPrice("");
-      }
+      setIsBundle(editingItem.is_bundle ?? false);
+      setComponents(
+        (editingItem.components ?? []).map((component) => ({
+          menu_item_id: component.menu_item_id,
+          quantity: component.quantity,
+        })),
+      );
+      setAdditionalMaidPrice(
+        editingItem.maid_service_pricing?.additional_maid_price ?? "0.00",
+      );
+      setAllMaidsPrice(
+        editingItem.maid_service_pricing?.all_maids_price ?? "",
+      );
     } else {
       setName("");
       setDescription("");
@@ -75,6 +93,8 @@ export default function MenuItemForm({
       setCategoryId("");
       setItemType("regular");
       setIsActive(true);
+      setIsBundle(false);
+      setComponents([]);
       setAdditionalMaidPrice("0.00");
       setAllMaidsPrice("");
     }
@@ -82,24 +102,48 @@ export default function MenuItemForm({
 
   useEffect(() => {
     if (itemType === "maid_service") {
-      if (maidServiceCategory) {
-        setCategoryId(maidServiceCategory.id);
-      } else {
-        setCategoryId("");
-      }
-    } else {
-      if (
-        categoryId !== "" &&
-        categories.find((c) => c.id === categoryId)?.name.trim().toLowerCase() ===
-          "maid service"
-      ) {
-        setCategoryId("");
-      }
+      setIsBundle(false);
+      setComponents([]);
+      setCategoryId(maidServiceCategory?.id ?? "");
+      return;
     }
-  }, [itemType, maidServiceCategory, categories]); // intentionally not using categoryId in deps
+    if (
+      categoryId !== "" &&
+      categories.find((c) => c.id === categoryId)?.name.trim().toLowerCase() ===
+        "maid service"
+    ) {
+      setCategoryId("");
+    }
+  }, [itemType, maidServiceCategory, categories]);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  function addComponent() {
+    const firstUnused = componentChoices.find(
+      (item) => !components.some((component) => component.menu_item_id === item.id),
+    );
+    if (!firstUnused) return;
+    setComponents((current) => [
+      ...current,
+      { menu_item_id: firstUnused.id, quantity: 1 },
+    ]);
+  }
+
+  function updateComponent(
+    index: number,
+    patch: Partial<BundleComponentPayload>,
+  ) {
+    setComponents((current) =>
+      current.map((component, i) =>
+        i === index ? { ...component, ...patch } : component,
+      ),
+    );
+  }
+
+  function removeComponent(index: number) {
+    setComponents((current) => current.filter((_, i) => i !== index));
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setError("");
     setSubmitting(true);
 
@@ -107,8 +151,17 @@ export default function MenuItemForm({
       if (itemType === "maid_service" && !maidServiceCategory) {
         throw new Error('Please create a category named "Maid Service" first.');
       }
+      if (isBundle && components.length === 0) {
+        throw new Error("A combo must contain at least one component.");
+      }
+      const duplicateIds = components
+        .map((component) => component.menu_item_id)
+        .filter((id, index, ids) => ids.indexOf(id) !== index);
+      if (duplicateIds.length > 0) {
+        throw new Error("The same component cannot be added twice.");
+      }
 
-      const payload = {
+      const payload: MenuItemCreatePayload = {
         name,
         description: description || null,
         price,
@@ -117,12 +170,16 @@ export default function MenuItemForm({
           itemType === "maid_service"
             ? maidServiceCategory?.id ?? null
             : categoryId === ""
-            ? null
-            : Number(categoryId),
+              ? null
+              : Number(categoryId),
         item_type: itemType,
         is_active: isActive,
-        additional_maid_price: itemType === "maid_service" ? additionalMaidPrice : null,
-        all_maids_price: itemType === "maid_service" ? allMaidsPrice || null : null,
+        is_bundle: isBundle,
+        components: isBundle ? components : [],
+        additional_maid_price:
+          itemType === "maid_service" ? additionalMaidPrice : null,
+        all_maids_price:
+          itemType === "maid_service" ? allMaidsPrice || null : null,
       };
 
       if (editingItem) {
@@ -141,31 +198,18 @@ export default function MenuItemForm({
     <form
       onSubmit={handleSubmit}
       style={{
-        background: "#fff",
-        border: "1px solid #e5e7eb",
-        borderRadius: 16,
-        padding: 20,
         display: "grid",
-        gap: 16,
+        gap: 14,
+        padding: 18,
+        border: "1px solid #e5e7eb",
+        borderRadius: 14,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h3 style={{ margin: 0 }}>{editingItem ? "Edit Menu Item" : "Add Menu Item"}</h3>
-        {editingItem ? (
-          <button
-            type="button"
-            onClick={onCancelEdit}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 10,
-              border: "1px solid #d1d5db",
-              background: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-        ) : null}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <h3 style={{ margin: 0 }}>
+          {editingItem ? "Edit Menu Item" : "Add Menu Item"}
+        </h3>
+        {editingItem ? <button type="button" onClick={onCancelEdit}>Cancel</button> : null}
       </div>
 
       <label style={{ display: "grid", gap: 6 }}>
@@ -180,137 +224,123 @@ export default function MenuItemForm({
         </select>
       </label>
 
+      {itemType === "regular" ? (
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={isBundle}
+            onChange={(e) => {
+              setIsBundle(e.target.checked);
+              if (!e.target.checked) setComponents([]);
+            }}
+          />
+          <span>This item is a combo / bundle</span>
+        </label>
+      ) : null}
+
       <label style={{ display: "grid", gap: 6 }}>
         <span>Name</span>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-        />
+        <input value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
         <span>Description</span>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={4}
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-        />
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
-        <span>Base Price</span>
-        <input
-          type="number"
-          step="0.01"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          required
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-        />
+        <span>Sale Price</span>
+        <input type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(e.target.value)} required />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
         <span>Image URL</span>
-        <input
-          value={imageUrl}
-          onChange={(e) => setImageUrl(e.target.value)}
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-        />
+        <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
         <span>Category</span>
         {itemType === "maid_service" ? (
-          <input
-            value={maidServiceCategory?.name ?? 'Please create "Maid Service" category first'}
-            disabled
-            style={{
-              padding: 10,
-              borderRadius: 10,
-              border: "1px solid #d1d5db",
-              background: "#f3f4f6",
-              color: "#4b5563",
-            }}
-          />
+          <input value={maidServiceCategory?.name ?? 'Please create "Maid Service" category first'} disabled />
         ) : (
           <select
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : "")}
-            style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
           >
             <option value="">No category</option>
             {regularCategories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
+              <option key={category.id} value={category.id}>{category.name}</option>
             ))}
           </select>
         )}
       </label>
 
-      {itemType === "maid_service" ? (
-        <div
-          style={{
-            display: "grid",
-            gap: 12,
-            padding: 16,
-            border: "1px solid #e5e7eb",
-            borderRadius: 12,
-            background: "#f9fafb",
-          }}
-        >
-          <strong>Maid Service Pricing</strong>
+      {isBundle ? (
+        <section style={{ display: "grid", gap: 12, padding: 14, border: "1px solid #c4b5fd", borderRadius: 12, background: "#faf5ff" }}>
+          <div>
+            <strong>Combo Components</strong>
+            <p style={{ margin: "4px 0 0", color: "#6b7280", fontSize: 13 }}>
+              The customer sees and pays for the combo. Kitchen and bar receive these components separately.
+            </p>
+          </div>
 
-          <label style={{ display: "grid", gap: 6 }}>
-            <span>Additional Maid Price</span>
-            <input
-              type="number"
-              step="0.01"
-              value={additionalMaidPrice}
-              onChange={(e) => setAdditionalMaidPrice(e.target.value)}
-              style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-            />
-          </label>
+          {components.map((component, index) => {
+            const selectedIds = new Set(components.map((entry) => entry.menu_item_id));
+            return (
+              <div key={`${component.menu_item_id}-${index}`} style={{ display: "grid", gridTemplateColumns: "1fr 100px auto", gap: 8 }}>
+                <select
+                  value={component.menu_item_id}
+                  onChange={(e) => updateComponent(index, { menu_item_id: Number(e.target.value) })}
+                >
+                  {componentChoices
+                    .filter((item) => item.id === component.menu_item_id || !selectedIds.has(item.id))
+                    .map((item) => {
+                      const category = categories.find((c) => c.id === item.category_id);
+                      return (
+                        <option key={item.id} value={item.id}>
+                          {item.name} · {category?.production_station ?? "none"}
+                        </option>
+                      );
+                    })}
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  value={component.quantity}
+                  onChange={(e) => updateComponent(index, { quantity: Math.max(1, Number(e.target.value || 1)) })}
+                />
+                <button type="button" onClick={() => removeComponent(index)}>Remove</button>
+              </div>
+            );
+          })}
 
-          <label style={{ display: "grid", gap: 6 }}>
-            <span>All Maids Price</span>
-            <input
-              type="number"
-              step="0.01"
-              value={allMaidsPrice}
-              onChange={(e) => setAllMaidsPrice(e.target.value)}
-              style={{ padding: 10, borderRadius: 10, border: "1px solid #d1d5db" }}
-            />
-          </label>
-        </div>
+          <button type="button" onClick={addComponent} disabled={components.length >= componentChoices.length}>
+            Add Component
+          </button>
+        </section>
       ) : null}
 
-      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <input
-          type="checkbox"
-          checked={isActive}
-          onChange={(e) => setIsActive(e.target.checked)}
-        />
+      {itemType === "maid_service" ? (
+        <section style={{ display: "grid", gap: 12, padding: 14, border: "1px solid #e5e7eb", borderRadius: 12 }}>
+          <strong>Maid Service Pricing</strong>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span>Additional Maid Price</span>
+            <input type="number" step="0.01" value={additionalMaidPrice} onChange={(e) => setAdditionalMaidPrice(e.target.value)} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span>All Maids Price</span>
+            <input type="number" step="0.01" value={allMaidsPrice} onChange={(e) => setAllMaidsPrice(e.target.value)} />
+          </label>
+        </section>
+      ) : null}
+
+      <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
         <span>Active</span>
       </label>
 
       {error ? <p style={{ color: "#b91c1c", margin: 0 }}>{error}</p> : null}
-
-      <button
-        type="submit"
-        disabled={submitting}
-        style={{
-          padding: "10px 14px",
-          borderRadius: 10,
-          border: "none",
-          background: "#111827",
-          color: "#fff",
-          cursor: "pointer",
-        }}
-      >
+      <button type="submit" disabled={submitting}>
         {submitting ? "Saving..." : editingItem ? "Update Menu Item" : "Create Menu Item"}
       </button>
     </form>

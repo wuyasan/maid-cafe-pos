@@ -2,13 +2,13 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.bill import Bill
 from app.models.enums import MenuItemType, ProductionStation
 from app.models.maid import SessionMaid
-from app.models.menu import MenuItem
-from app.models.order import Order, OrderItem, OrderItemMaid
+from app.models.menu import MenuItem, MenuItemComponent
+from app.models.order import Order, OrderItem, OrderItemMaid, ProductionTask
 from app.models.session import Session as SessionModel
 from app.models.table import SessionTable
 from app.schemas.order import CustomerOrderCreate
@@ -86,25 +86,96 @@ def _station_is_closed(
         return True
     if now.date() < session.service_date:
         return False
-
     return now.time().replace(tzinfo=None) >= cutoff
 
 
-def _validate_station_ordering(
+def _validate_station(
+    session: SessionModel,
+    station: ProductionStation,
+    item_name: str,
+) -> None:
+    if not _station_is_closed(session, station, datetime.now()):
+        return
+    station_name = "Kitchen" if station == ProductionStation.kitchen else "Bar"
+    raise ValueError(
+        f'{station_name} ordering is closed. "{item_name}" can no longer be ordered.'
+    )
+
+
+def _validate_item_and_components_orderable(
     session: SessionModel,
     menu_item: MenuItem,
 ) -> None:
+    if menu_item.is_bundle:
+        if not menu_item.bundle_components:
+            raise ValueError(f'Bundle "{menu_item.name}" has no components.')
+        for component_link in menu_item.bundle_components:
+            component = component_link.component_menu_item
+            if not component.is_active:
+                raise ValueError(
+                    f'Bundle component "{component.name}" is inactive.'
+                )
+            station = (
+                component.category.production_station
+                if component.category is not None
+                else ProductionStation.none
+            )
+            _validate_station(session, station, component.name)
+        return
+
     station = (
         menu_item.category.production_station
         if menu_item.category is not None
         else ProductionStation.none
     )
-    if not _station_is_closed(session, station, datetime.now()):
+    _validate_station(session, station, menu_item.name)
+
+
+def _create_production_tasks(
+    db: Session,
+    order_item: OrderItem,
+    menu_item: MenuItem,
+    ordered_quantity: int,
+    notes: str | None,
+) -> None:
+    if menu_item.is_bundle:
+        for component_link in menu_item.bundle_components:
+            component = component_link.component_menu_item
+            station = (
+                component.category.production_station
+                if component.category is not None
+                else ProductionStation.none
+            )
+            if station == ProductionStation.none:
+                continue
+            db.add(
+                ProductionTask(
+                    order_item_id=order_item.id,
+                    source_menu_item_id=component.id,
+                    station=station,
+                    display_name=component.name,
+                    quantity=ordered_quantity * component_link.quantity,
+                    notes=notes,
+                )
+            )
         return
 
-    station_name = "Kitchen" if station == ProductionStation.kitchen else "Bar"
-    raise ValueError(
-        f'{station_name} ordering is closed. "{menu_item.name}" can no longer be ordered.'
+    station = (
+        menu_item.category.production_station
+        if menu_item.category is not None
+        else ProductionStation.none
+    )
+    if station == ProductionStation.none:
+        return
+    db.add(
+        ProductionTask(
+            order_item_id=order_item.id,
+            source_menu_item_id=menu_item.id,
+            station=station,
+            display_name=menu_item.name,
+            quantity=ordered_quantity,
+            notes=notes,
+        )
     )
 
 
@@ -121,10 +192,7 @@ def create_order_for_bill(
     session = _get_session(db, session_id)
     total_available_maid_count = _get_total_available_maid_count(db, session_id)
 
-    order = Order(
-        bill_id=bill.id,
-        source=payload.source,
-    )
+    order = Order(bill_id=bill.id, source=payload.source)
     db.add(order)
     db.flush()
 
@@ -135,6 +203,9 @@ def create_order_for_bill(
                 .options(
                     joinedload(MenuItem.maid_service_pricing),
                     joinedload(MenuItem.category),
+                    selectinload(MenuItem.bundle_components)
+                    .joinedload(MenuItemComponent.component_menu_item)
+                    .joinedload(MenuItem.category),
                 )
                 .where(MenuItem.id == line.menu_item_id)
             )
@@ -146,8 +217,12 @@ def create_order_for_bill(
             raise ValueError(f"Menu item {line.menu_item_id} not found.")
         if not menu_item.is_active:
             raise ValueError(f'Menu item "{menu_item.name}" is inactive.')
+        if line.quantity < 1:
+            raise ValueError("Quantity must be at least 1.")
+        if menu_item.is_bundle and menu_item.item_type == MenuItemType.maid_service:
+            raise ValueError("Maid service items cannot be bundles.")
 
-        _validate_station_ordering(session, menu_item)
+        _validate_item_and_components_orderable(session, menu_item)
 
         selected_maid_ids = line.selected_maid_ids or []
         if menu_item.item_type == MenuItemType.maid_service:
@@ -180,6 +255,14 @@ def create_order_for_bill(
         )
         db.add(order_item)
         db.flush()
+
+        _create_production_tasks(
+            db=db,
+            order_item=order_item,
+            menu_item=menu_item,
+            ordered_quantity=line.quantity,
+            notes=line.notes,
+        )
 
         if menu_item.item_type == MenuItemType.maid_service:
             for maid_id in selected_maid_ids:

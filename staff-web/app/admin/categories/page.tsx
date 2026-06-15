@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import CategoryForm from "@/components/admin/CategoryForm";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -11,10 +11,28 @@ import type {
   ProductionStation,
 } from "@/lib/types";
 
+const cardStyle = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 18,
+  background: "#ffffff",
+  padding: 18,
+  boxShadow: "0 5px 18px rgba(17, 24, 39, 0.05)",
+} as const;
+
 function stationLabel(station: ProductionStation) {
   if (station === "kitchen") return "Kitchen";
   if (station === "bar") return "Bar";
-  return "None";
+  return "No production";
+}
+
+function stationStyle(station: ProductionStation) {
+  if (station === "kitchen") {
+    return { background: "#ffedd5", color: "#9a3412" };
+  }
+  if (station === "bar") {
+    return { background: "#dbeafe", color: "#1d4ed8" };
+  }
+  return { background: "#f3f4f6", color: "#4b5563" };
 }
 
 export default function AdminCategoriesPage() {
@@ -24,6 +42,14 @@ export default function AdminCategoriesPage() {
   const [editingCategory, setEditingCategory] =
     useState<MenuCategoryItem | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+
+  const sortedCategories = useMemo(
+    () =>
+      [...categories].sort(
+        (a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name),
+      ),
+    [categories],
+  );
 
   async function loadCategories() {
     setLoading(true);
@@ -42,19 +68,19 @@ export default function AdminCategoriesPage() {
   }
 
   useEffect(() => {
-    loadCategories();
+    void loadCategories();
   }, []);
 
   async function handleCreateCategory(payload: MenuCategoryCreatePayload) {
-    await apiPost("/menu/categories", payload);
+    await apiPost<MenuCategoryItem>("/menu/categories", payload);
     await loadCategories();
   }
 
   async function handleUpdateCategory(
     categoryId: number,
-    payload: MenuCategoryUpdatePayload
+    payload: MenuCategoryUpdatePayload,
   ) {
-    await apiPatch(`/menu/categories/${categoryId}`, payload);
+    await apiPatch<MenuCategoryItem>(`/menu/categories/${categoryId}`, payload);
     setEditingCategory(null);
     await loadCategories();
   }
@@ -66,88 +92,159 @@ export default function AdminCategoriesPage() {
     try {
       setActionLoadingId(category.id);
       await apiDelete<{ success: boolean; deleted_id: number }>(
-        `/menu/categories/${category.id}`
+        `/menu/categories/${category.id}`,
       );
-      if (editingCategory?.id === category.id) {
-        setEditingCategory(null);
-      }
+      if (editingCategory?.id === category.id) setEditingCategory(null);
       await loadCategories();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete category");
+      window.alert(err instanceof Error ? err.message : "Failed to delete category");
     } finally {
       setActionLoadingId(null);
     }
   }
 
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
-      <h1>Menu Categories</h1>
-      <p style={{ color: "#6b7280" }}>
-        Assign every category to Kitchen, Bar, or None.
-      </p>
+    <section style={{ display: "grid", gap: 22 }}>
+      <div>
+        <h1 style={{ margin: 0, fontSize: 30 }}>Menu Categories</h1>
+        <p style={{ color: "#6b7280", margin: "8px 0 0" }}>
+          Organize menu items and choose which production station receives them.
+        </p>
+      </div>
 
-      <CategoryForm
-        editingCategory={editingCategory}
-        onCreate={handleCreateCategory}
-        onUpdate={handleUpdateCategory}
-        onCancelEdit={() => setEditingCategory(null)}
-      />
+      <div style={cardStyle}>
+        <CategoryForm
+          editingCategory={editingCategory}
+          onCreate={handleCreateCategory}
+          onUpdate={handleUpdateCategory}
+          onCancelEdit={() => setEditingCategory(null)}
+        />
+      </div>
 
-      <section style={{ marginTop: 24 }}>
-        <h3>Category List</h3>
-        {loading ? <p>Loading...</p> : null}
-        {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
-        {!loading && !error && categories.length === 0 ? (
-          <p>No categories yet.</p>
+      <div>
+        <h2 style={{ margin: "0 0 12px", fontSize: 22 }}>Category List</h2>
+
+        {loading ? <div style={cardStyle}>Loading...</div> : null}
+        {error ? (
+          <div style={{ ...cardStyle, borderColor: "#fecaca", color: "#b91c1c" }}>
+            {error}
+          </div>
+        ) : null}
+        {!loading && !error && sortedCategories.length === 0 ? (
+          <div style={cardStyle}>No categories yet.</div>
         ) : null}
 
-        <div style={{ display: "grid", gap: 12 }}>
-          {categories.map((category) => (
-            <article
-              key={category.id}
-              style={{
-                padding: 16,
-                border: "1px solid #e5e7eb",
-                borderRadius: 14,
-                background: "#fff",
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 16,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <div style={{ display: "grid", gap: 4 }}>
-                <strong>{category.name}</strong>
-                <span style={{ color: "#4b5563", fontSize: 14 }}>
-                  ID: {category.id} · Display Order: {category.display_order} · Items: {category.item_count}
-                </span>
-                <span style={{ fontSize: 14 }}>
-                  Station: <strong>{stationLabel(category.production_station)}</strong>
-                </span>
-              </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(275px, 1fr))",
+            gap: 14,
+          }}
+        >
+          {sortedCategories.map((category) => {
+            const busy = actionLoadingId === category.id;
+            const badgeStyle = stationStyle(category.production_station);
 
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setEditingCategory(category)}
-                  disabled={actionLoadingId === category.id}
+            return (
+              <article key={category.id} style={cardStyle}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
                 >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(category)}
-                  disabled={actionLoadingId === category.id}
-                  style={{ background: "#dc2626", color: "#fff" }}
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 19 }}>{category.name}</h3>
+                    <div style={{ color: "#6b7280", fontSize: 13, marginTop: 5 }}>
+                      Display order {category.display_order}
+                    </div>
+                  </div>
+
+                  <span
+                    style={{
+                      ...badgeStyle,
+                      borderRadius: 999,
+                      padding: "5px 9px",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {stationLabel(category.production_station)}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    background: "#f8fafc",
+                    color: "#374151",
+                    fontWeight: 700,
+                  }}
                 >
-                  {actionLoadingId === category.id ? "Deleting..." : "Delete"}
-                </button>
-              </div>
-            </article>
-          ))}
+                  {category.item_count} menu item
+                  {category.item_count === 1 ? "" : "s"}
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 9,
+                    marginTop: 14,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEditingCategory(category)}
+                    disabled={busy}
+                    style={{
+                      minHeight: 42,
+                      borderRadius: 11,
+                      border: "none",
+                      background: "#4f46e5",
+                      color: "#ffffff",
+                      fontWeight: 800,
+                      cursor: busy ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Edit
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(category)}
+                    disabled={busy || category.item_count > 0}
+                    title={
+                      category.item_count > 0
+                        ? "Move or delete the items in this category first"
+                        : "Delete category"
+                    }
+                    style={{
+                      minHeight: 42,
+                      borderRadius: 11,
+                      border: "1px solid #fecaca",
+                      background:
+                        busy || category.item_count > 0 ? "#f3f4f6" : "#fff7f7",
+                      color:
+                        busy || category.item_count > 0 ? "#9ca3af" : "#b91c1c",
+                      fontWeight: 800,
+                      cursor:
+                        busy || category.item_count > 0 ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {busy ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
-      </section>
-    </main>
+      </div>
+    </section>
   );
 }

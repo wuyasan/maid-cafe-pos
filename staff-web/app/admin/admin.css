@@ -1,0 +1,121 @@
+.admin-shell {
+  min-height: 100vh;
+  padding: 24px;
+  background: #f6f7fb;
+  color: #111827;
+}
+
+.admin-shell * {
+  box-sizing: border-box;
+}
+
+.admin-shell input:not([type="checkbox"]):not([type="radio"]),
+.admin-shell textarea,
+.admin-shell select {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #cbd5e1 !important;
+  caret-color: #111827;
+}
+
+.admin-shell input::placeholder,
+.admin-shell textarea::placeholder {
+  color: #94a3b8 !important;
+  opacity: 1;
+}
+
+.admin-shell input:focus,
+.admin-shell textarea:focus,
+.admin-shell select:focus {
+  outline: 3px solid rgba(99, 102, 241, 0.18);
+  border-color: #6366f1 !important;
+}
+
+.admin-shell input:disabled,
+.admin-shell textarea:disabled,
+.admin-shell select:disabled {
+  background: #e5e7eb !important;
+  color: #4b5563 !important;
+  opacity: 1;
+}
+
+.admin-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.admin-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 850;
+}
+
+.admin-switch-view {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 9px 15px;
+  border-radius: 12px;
+  background: #4338ca;
+  color: #ffffff;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.admin-nav-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid #dbe1ea;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1f2937;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.admin-nav-link:hover {
+  background: #eef2ff;
+  border-color: #a5b4fc;
+}
+
+.admin-content {
+  width: 100%;
+}
+
+@media (max-width: 700px) {
+  .admin-shell {
+    padding: 14px;
+  }
+
+  .admin-topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-switch-view {
+    width: 100%;
+  }
+}

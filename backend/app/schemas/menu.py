@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import MenuItemType, ProductionStation
 
@@ -54,6 +54,19 @@ class MaidServicePricingUpdate(BaseModel):
     all_maids_price: Optional[Decimal] = None
 
 
+class BundleComponentWrite(BaseModel):
+    menu_item_id: int
+    quantity: int = Field(default=1, ge=1)
+
+
+class BundleComponentRead(BaseModel):
+    id: int
+    menu_item_id: int
+    menu_item_name: str
+    quantity: int
+    production_station: ProductionStation
+
+
 class MenuItemBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -62,10 +75,11 @@ class MenuItemBase(BaseModel):
     category_id: Optional[int] = None
     item_type: MenuItemType
     is_active: bool = True
+    is_bundle: bool = False
 
 
 class MenuItemCreate(MenuItemBase):
-    pass
+    components: list[BundleComponentWrite] = Field(default_factory=list)
 
 
 class MenuItemUpdate(BaseModel):
@@ -76,6 +90,8 @@ class MenuItemUpdate(BaseModel):
     category_id: Optional[int] = None
     item_type: Optional[MenuItemType] = None
     is_active: Optional[bool] = None
+    is_bundle: Optional[bool] = None
+    components: Optional[list[BundleComponentWrite]] = None
 
 
 class MenuItemRead(MenuItemBase):
@@ -84,18 +100,13 @@ class MenuItemRead(MenuItemBase):
     id: int
     created_at: datetime
     maid_service_pricing: Optional[MaidServicePricingRead] = None
+    components: list[BundleComponentRead] = Field(default_factory=list)
 
 
-class MenuItemWithPricingCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    price: Decimal
-    image_url: Optional[str] = None
-    category_id: Optional[int] = None
-    item_type: MenuItemType
-    is_active: bool = True
+class MenuItemWithPricingCreate(MenuItemBase):
     additional_maid_price: Optional[Decimal] = None
     all_maids_price: Optional[Decimal] = None
+    components: list[BundleComponentWrite] = Field(default_factory=list)
 
 
 class MenuItemWithPricingUpdate(BaseModel):
@@ -106,9 +117,11 @@ class MenuItemWithPricingUpdate(BaseModel):
     category_id: Optional[int] = None
     item_type: Optional[MenuItemType] = None
     is_active: Optional[bool] = None
+    is_bundle: Optional[bool] = None
     additional_maid_price: Optional[Decimal] = None
     all_maids_price: Optional[Decimal] = None
+    components: Optional[list[BundleComponentWrite]] = None
 
 
 class MenuItemWithPricingRead(MenuItemRead):
-    maid_service_pricing: Optional[MaidServicePricingRead] = None
+    pass

@@ -2,12 +2,15 @@ export type ProductionStation = "kitchen" | "bar";
 export type ProductionStatus = "pending" | "preparing" | "completed";
 
 export type ProductionQueueItem = {
+  production_task_id: number;
   order_item_id: number;
   order_id: number;
   bill_id: number;
   table_code: string;
-  menu_item_id: number;
-  menu_item_name: string;
+  parent_menu_item_id: number;
+  parent_menu_item_name: string;
+  source_menu_item_id?: number | null;
+  display_name: string;
   quantity: number;
   notes?: string | null;
   source: "qr" | "staff";

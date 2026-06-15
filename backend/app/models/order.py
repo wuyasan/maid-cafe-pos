@@ -3,12 +3,12 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import Enum, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.common import TimestampMixin
-from app.models.enums import OrderSource, ProductionStatus
+from app.models.enums import OrderSource, ProductionStation, ProductionStatus
 
 
 class Order(Base, TimestampMixin):
@@ -42,6 +42,8 @@ class OrderItem(Base, TimestampMixin):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     total_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Kept for backward compatibility. New kitchen/bar workflow uses ProductionTask.
     production_status: Mapped[ProductionStatus] = mapped_column(
         Enum(
             ProductionStatus,
@@ -62,6 +64,57 @@ class OrderItem(Base, TimestampMixin):
         back_populates="order_item",
         cascade="all, delete-orphan",
     )
+    production_tasks: Mapped[List["ProductionTask"]] = relationship(
+        "ProductionTask",
+        back_populates="order_item",
+        cascade="all, delete-orphan",
+        order_by="ProductionTask.id",
+    )
+
+
+class ProductionTask(Base, TimestampMixin):
+    __tablename__ = "production_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_item_id: Mapped[int] = mapped_column(
+        ForeignKey("order_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_menu_item_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("menu_items.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    station: Mapped[ProductionStation] = mapped_column(
+        Enum(
+            ProductionStation,
+            name="production_task_station",
+            native_enum=False,
+            length=20,
+        ),
+        nullable=False,
+        index=True,
+    )
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[ProductionStatus] = mapped_column(
+        Enum(
+            ProductionStatus,
+            name="production_task_status",
+            native_enum=False,
+            length=20,
+        ),
+        default=ProductionStatus.pending,
+        nullable=False,
+        index=True,
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    order_item: Mapped["OrderItem"] = relationship(
+        "OrderItem",
+        back_populates="production_tasks",
+    )
+    source_menu_item: Mapped[Optional["MenuItem"]] = relationship("MenuItem")
 
 
 class OrderItemMaid(Base):
