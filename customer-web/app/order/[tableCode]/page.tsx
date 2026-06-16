@@ -311,6 +311,7 @@ export default function OrderPage({ params }: Props) {
 
       {selectedMaidServiceItem ? (
         <MaidPickerModal
+          open={selectedMaidServiceItem !== null}
           item={selectedMaidServiceItem}
           maids={maids}
           onClose={() => setSelectedMaidServiceItem(null)}

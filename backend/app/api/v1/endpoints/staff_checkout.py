@@ -104,6 +104,11 @@ def get_staff_tables_overview(db: Session = Depends(get_db)):
                 is_shareable=table.is_shareable,
                 status=session_table.status,
                 current_party_size=session_table.current_party_size,
+                layout_x=table.layout_x,
+                layout_y=table.layout_y,
+                layout_width=table.layout_width,
+                layout_height=table.layout_height,
+                layout_shape=table.layout_shape,
                 open_bill_id=open_bill.id if open_bill else None,
                 open_bill_total=(
                     open_bill.total if open_bill else Decimal("0.00")

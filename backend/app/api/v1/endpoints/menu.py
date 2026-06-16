@@ -56,6 +56,7 @@ def _component_reads(item: MenuItem) -> list[BundleComponentRead]:
                 menu_item_name=component.name,
                 quantity=link.quantity,
                 production_station=station,
+                item_type=component.item_type,
             )
         )
     return result
@@ -75,6 +76,13 @@ def _item_read(item: MenuItem) -> MenuItemWithPricingRead:
         created_at=item.created_at,
         maid_service_pricing=item.maid_service_pricing,
         components=_component_reads(item),
+        requires_maid_selection=(
+            item.item_type == MenuItemType.maid_service
+            or any(
+                link.component_menu_item.item_type == MenuItemType.maid_service
+                for link in item.bundle_components
+            )
+        ),
     )
 
 
@@ -94,11 +102,25 @@ def _validate_category(db: Session, category_id: int | None) -> None:
         raise HTTPException(status_code=404, detail="Category not found.")
 
 
+def _normalize_components(
+    components: list[BundleComponentWrite] | list[dict] | None,
+) -> list[BundleComponentWrite]:
+    if not components:
+        return []
+    return [
+        component
+        if isinstance(component, BundleComponentWrite)
+        else BundleComponentWrite.model_validate(component)
+        for component in components
+    ]
+
+
 def _validate_bundle_components(
     db: Session,
     parent_item_id: int | None,
     components: list[BundleComponentWrite],
 ) -> None:
+    components = _normalize_components(components)
     if not components:
         raise HTTPException(
             status_code=400,
@@ -126,11 +148,6 @@ def _validate_bundle_components(
                 status_code=404,
                 detail=f"Component menu item {component.menu_item_id} not found.",
             )
-        if component_item.item_type == MenuItemType.maid_service:
-            raise HTTPException(
-                status_code=400,
-                detail="Maid service items cannot be bundle components.",
-            )
         if component_item.is_bundle:
             raise HTTPException(
                 status_code=400,
@@ -143,6 +160,7 @@ def _replace_components(
     item: MenuItem,
     components: list[BundleComponentWrite],
 ) -> None:
+    components = _normalize_components(components)
     for existing in list(item.bundle_components):
         db.delete(existing)
     db.flush()
@@ -284,6 +302,8 @@ def update_menu_item(
 
     update_data = payload.model_dump(exclude_unset=True)
     components = update_data.pop("components", None)
+    if components is not None:
+        components = _normalize_components(components)
     _validate_category(db, update_data.get("category_id", item.category_id))
 
     final_item_type = update_data.get("item_type", item.item_type)
@@ -450,6 +470,8 @@ def update_menu_item_with_pricing(
 
     update_data = payload.model_dump(exclude_unset=True)
     components = update_data.pop("components", None)
+    if components is not None:
+        components = _normalize_components(components)
     additional_maid_price = update_data.pop("additional_maid_price", None)
     all_maids_price_was_sent = "all_maids_price" in payload.model_fields_set
     all_maids_price = update_data.pop("all_maids_price", None)

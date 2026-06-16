@@ -67,6 +67,7 @@ export type BundleComponent = {
   menu_item_name: string;
   quantity: number;
   production_station: ProductionStation;
+  item_type: MenuItemType;
 };
 export type BundleComponentPayload = { menu_item_id: number; quantity: number };
 export type MenuItemRecord = {
@@ -82,6 +83,7 @@ export type MenuItemRecord = {
   created_at: string;
   maid_service_pricing?: MaidServicePricingLite | null;
   components: BundleComponent[];
+  requires_maid_selection: boolean;
 };
 export type MenuItemCreatePayload = {
   name: string;
@@ -106,6 +108,8 @@ export type SessionTableStatus = "available" | "occupied" | "ready" | "paying" |
 export type SessionTableSummary = {
   id: number; session_id: number; table_id: number; table_code: string; seats: number;
   is_shareable: boolean; status: SessionTableStatus; current_party_size: number;
+  layout_x: number; layout_y: number; layout_width: number; layout_height: number;
+  layout_shape: "rectangle" | "round";
   open_bill_id?: number | null; open_bill_total: string;
 };
 export type SessionTableListResponse = { session_id: number; session_name: string; tables: SessionTableSummary[] };

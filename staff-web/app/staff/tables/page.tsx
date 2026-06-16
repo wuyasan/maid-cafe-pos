@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import type {
@@ -13,13 +13,13 @@ function money(value?: string | null) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
-function getSimpleStatus(table: SessionTableSummary) {
+function tableAppearance(table: SessionTableSummary) {
   if (table.status === "paying") {
     return {
       label: "Checking out",
       background: "#fef3c7",
-      color: "#92400e",
       border: "#f59e0b",
+      color: "#92400e",
     };
   }
 
@@ -27,22 +27,26 @@ function getSimpleStatus(table: SessionTableSummary) {
     return {
       label: "Empty",
       background: "#dcfce7",
+      border: "#22c55e",
       color: "#166534",
-      border: "#86efac",
+    };
+  }
+
+  if (table.current_party_size >= table.seats) {
+    return {
+      label: "Full",
+      background: "#fee2e2",
+      border: "#ef4444",
+      color: "#991b1b",
     };
   }
 
   return {
     label: "Seated",
     background: "#dbeafe",
+    border: "#3b82f6",
     color: "#1d4ed8",
-    border: "#93c5fd",
   };
-}
-
-function extractTableNumber(code: string) {
-  const match = code.match(/\d+/);
-  return match ? Number(match[0]) : Number.MAX_SAFE_INTEGER;
 }
 
 export default function StaffTablesPage() {
@@ -50,249 +54,216 @@ export default function StaffTablesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function loadTables(showLoading = true) {
+  async function load(showLoading = false) {
     if (showLoading) setLoading(true);
-    setError("");
 
     try {
-      const result = await apiGet<SessionTableListResponse>("/staff/tables");
-      setData(result);
+      setError("");
+      setData(await apiGet<SessionTableListResponse>("/staff/tables"));
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load staff tables",
-      );
+      setError(err instanceof Error ? err.message : "Failed to load tables");
     } finally {
       if (showLoading) setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadTables();
-
-    const timer = window.setInterval(() => {
-      loadTables(false);
-    }, 10000);
-
+    void load(true);
+    const timer = window.setInterval(() => void load(false), 10000);
     return () => window.clearInterval(timer);
   }, []);
 
-  const sortedTables = useMemo(() => {
-    if (!data) return [];
-
-    return [...data.tables].sort((a, b) => {
-      const numberDifference =
-        extractTableNumber(a.table_code) - extractTableNumber(b.table_code);
-
-      if (numberDifference !== 0) return numberDifference;
-      return a.table_code.localeCompare(b.table_code);
-    });
-  }, [data]);
-
   return (
-    <div style={{ display: "grid", gap: 24 }}>
+    <main
+      style={{
+        maxWidth: 1280,
+        margin: "0 auto",
+        padding: "24px 18px 60px",
+        color: "#111827",
+      }}
+    >
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          gap: 16,
+          gap: 14,
           flexWrap: "wrap",
+          marginBottom: 18,
         }}
       >
         <div>
-          <h1 style={{ marginBottom: 8 }}>Staff Tables</h1>
-          <p style={{ marginTop: 0, color: "#4b5563" }}>
-            {data
-              ? `Current Session: ${data.session_name}`
-              : "Current session overview"}
+          <h1 style={{ margin: 0 }}>Front / Floor Map</h1>
+          <p style={{ margin: "7px 0 0", color: "#64748b" }}>
+            {data ? `Current Session: ${data.session_name}` : "Loading session"}
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => loadTables()}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid #d1d5db",
-              color: "#111827",
-              background: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            Refresh
-          </button>
-
-          <Link
-            href="/admin"
-            style={{
-              textDecoration: "none",
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid #d1d5db",
-              color: "#111827",
-              background: "#fff",
-            }}
-          >
-            Back to Admin
-          </Link>
-        </div>
+        <button
+          type="button"
+          onClick={() => void load(true)}
+          style={{
+            minHeight: 42,
+            padding: "9px 15px",
+            borderRadius: 11,
+            border: "1px solid #d1d5db",
+            background: "#ffffff",
+            color: "#111827",
+            fontWeight: 800,
+          }}
+        >
+          Refresh
+        </button>
       </div>
 
-      {loading ? <p>Loading...</p> : null}
       {error ? (
         <div
           style={{
-            padding: 12,
+            padding: 13,
             borderRadius: 12,
             background: "#fef2f2",
             color: "#b91c1c",
+            marginBottom: 16,
           }}
         >
           {error}
         </div>
       ) : null}
 
-      {!loading && !error && data && sortedTables.length === 0 ? (
-        <div
-          style={{
-            background: "#fff",
-            border: "1px solid #e5e7eb",
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
-          No tables are linked to the current session. Open Session Tables and
-          click <strong>Sync All Active Tables</strong>.
-        </div>
-      ) : null}
+      {loading ? <p>Loading floor map...</p> : null}
 
-      {!loading && !error && data ? (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-            gap: 18,
-          }}
-        >
-          {sortedTables.map((table) => {
-            const status = getSimpleStatus(table);
-            const remainingSeats = Math.max(
-              0,
-              table.seats - table.current_party_size,
-            );
-            const isFull = remainingSeats === 0;
+      {!loading && data ? (
+        <>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              marginBottom: 14,
+              color: "#475569",
+              fontSize: 13,
+              fontWeight: 800,
+            }}
+          >
+            <span>🟢 Empty</span>
+            <span>🔵 Seated</span>
+            <span>🔴 Full</span>
+            <span>🟡 Checking out</span>
+          </div>
 
-            let seatingMessage = `${remainingSeats} seat(s) available`;
-            if (isFull) {
-              seatingMessage = "Full";
-            } else if (
-              table.current_party_size > 0 &&
-              !table.is_shareable
-            ) {
-              seatingMessage = "No additional party";
-            }
+          <section
+            style={{
+              position: "relative",
+              width: "100%",
+              aspectRatio: "16 / 10",
+              minHeight: 500,
+              border: "2px solid #e2e8f0",
+              borderRadius: 22,
+              background:
+                "radial-gradient(circle at 25% 20%, #ffffff 0, #f8fafc 65%, #f1f5f9 100%)",
+              overflow: "hidden",
+              boxShadow: "inset 0 0 30px rgba(15,23,42,.04)",
+            }}
+          >
+            {data.tables.map((table) => {
+              const appearance = tableAppearance(table);
+              const remaining = Math.max(
+                0,
+                table.seats - table.current_party_size,
+              );
 
-            return (
-              <article
-                key={table.id}
-                style={{
-                  background: "#fff",
-                  border: `2px solid ${status.border}`,
-                  borderRadius: 18,
-                  padding: 18,
-                  display: "grid",
-                  gap: 14,
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                }}
-              >
-                <div
+              return (
+                <Link
+                  key={table.id}
+                  href={`/staff/table/${encodeURIComponent(table.table_code)}`}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    gap: 12,
+                    position: "absolute",
+                    left: `${table.layout_x}%`,
+                    top: `${table.layout_y}%`,
+                    width: `${table.layout_width}%`,
+                    height: `${table.layout_height}%`,
+                    minWidth: 90,
+                    minHeight: 82,
+                    borderRadius:
+                      table.layout_shape === "round" ? "50%" : 18,
+                    border: `3px solid ${appearance.border}`,
+                    background: appearance.background,
+                    color: appearance.color,
+                    textDecoration: "none",
+                    boxShadow: "0 10px 22px rgba(15,23,42,.13)",
+                    padding: 10,
+                    display: "grid",
+                    placeItems: "center",
+                    textAlign: "center",
+                    overflow: "hidden",
                   }}
                 >
-                  <div>
-                    <div
+                  <span>
+                    <strong
                       style={{
-                        fontSize: 32,
-                        fontWeight: 800,
+                        display: "block",
+                        fontSize: "clamp(18px, 2.4vw, 30px)",
                         lineHeight: 1,
                       }}
                     >
                       {table.table_code}
-                    </div>
-                    <div
+                    </strong>
+
+                    <span
                       style={{
-                        marginTop: 8,
-                        color: "#6b7280",
-                        fontSize: 14,
+                        display: "block",
+                        marginTop: 5,
+                        fontSize: 12,
+                        fontWeight: 900,
                       }}
                     >
-                      {table.seats} seats · {table.is_shareable ? "Shareable" : "Private"}
-                    </div>
-                  </div>
+                      {appearance.label}
+                    </span>
 
-                  <span
-                    style={{
-                      fontSize: 12,
-                      padding: "4px 10px",
-                      borderRadius: 999,
-                      background: status.background,
-                      color: status.color,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {status.label}
+                    <span
+                      style={{
+                        display: "block",
+                        marginTop: 4,
+                        fontSize: 11,
+                        color: "#334155",
+                        fontWeight: 750,
+                      }}
+                    >
+                      {table.current_party_size}/{table.seats} guests
+                      {table.is_shareable ? " · Shareable" : ""}
+                    </span>
+
+                    {Number(table.open_bill_total || 0) > 0 ? (
+                      <span
+                        style={{
+                          display: "block",
+                          marginTop: 4,
+                          fontSize: 12,
+                          color: "#111827",
+                          fontWeight: 900,
+                        }}
+                      >
+                        Unpaid {money(table.open_bill_total)}
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          display: "block",
+                          marginTop: 4,
+                          fontSize: 11,
+                          color: "#64748b",
+                        }}
+                      >
+                        {remaining} seat(s) left
+                      </span>
+                    )}
                   </span>
-                </div>
-
-                <div
-                  style={{
-                    padding: 12,
-                    borderRadius: 12,
-                    background: "#f9fafb",
-                    display: "grid",
-                    gap: 7,
-                    fontSize: 14,
-                  }}
-                >
-                  <div>
-                    Guests: <strong>{table.current_party_size}</strong> / {table.seats}
-                  </div>
-                  <div>
-                    Seating: <strong>{seatingMessage}</strong>
-                  </div>
-                  <div>
-                    Bill: {table.open_bill_id ? `#${table.open_bill_id}` : "No open bill"}
-                  </div>
-                  <div>
-                    Total: <strong>{money(table.open_bill_total)}</strong>
-                  </div>
-                </div>
-
-                <Link
-                  href={`/staff/table/${table.table_code}`}
-                  style={{
-                    textDecoration: "none",
-                    textAlign: "center",
-                    padding: "12px 14px",
-                    borderRadius: 12,
-                    background: "#111827",
-                    color: "#fff",
-                    fontWeight: 600,
-                  }}
-                >
-                  Open Table
                 </Link>
-              </article>
-            );
-          })}
-        </div>
+              );
+            })}
+          </section>
+        </>
       ) : null}
-    </div>
+    </main>
   );
 }

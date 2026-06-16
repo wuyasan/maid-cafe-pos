@@ -219,18 +219,26 @@ def create_order_for_bill(
             raise ValueError(f'Menu item "{menu_item.name}" is inactive.')
         if line.quantity < 1:
             raise ValueError("Quantity must be at least 1.")
-        if menu_item.is_bundle and menu_item.item_type == MenuItemType.maid_service:
-            raise ValueError("Maid service items cannot be bundles.")
-
         _validate_item_and_components_orderable(session, menu_item)
 
         selected_maid_ids = line.selected_maid_ids or []
-        if menu_item.item_type == MenuItemType.maid_service:
+        bundle_has_maid_service = menu_item.is_bundle and any(
+            link.component_menu_item.item_type == MenuItemType.maid_service
+            for link in menu_item.bundle_components
+        )
+        requires_maid_selection = (
+            menu_item.item_type == MenuItemType.maid_service
+            or bundle_has_maid_service
+        )
+
+        if requires_maid_selection:
             _validate_selected_maids_for_session(
                 db=db,
                 session_id=session_id,
                 selected_maid_ids=selected_maid_ids,
             )
+
+        if menu_item.item_type == MenuItemType.maid_service:
             unit_price, total_price = calculate_order_item_price(
                 menu_item=menu_item,
                 quantity=line.quantity,
@@ -238,6 +246,8 @@ def create_order_for_bill(
                 total_available_maid_count=total_available_maid_count,
             )
         else:
+            # Bundles keep their configured fixed sale price. Maid-service
+            # components require maid selection but do not add extra pricing.
             unit_price, total_price = calculate_order_item_price(
                 menu_item=menu_item,
                 quantity=line.quantity,
@@ -264,7 +274,7 @@ def create_order_for_bill(
             notes=line.notes,
         )
 
-        if menu_item.item_type == MenuItemType.maid_service:
+        if requires_maid_selection:
             for maid_id in selected_maid_ids:
                 db.add(
                     OrderItemMaid(

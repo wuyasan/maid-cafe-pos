@@ -10,6 +10,14 @@ import type {
   MenuItemUpdatePayload,
 } from "@/lib/types";
 
+const buttonBase: React.CSSProperties = {
+  minHeight: 40,
+  padding: "9px 14px",
+  borderRadius: 10,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
 export default function AdminMenuItemsPage() {
   const [items, setItems] = useState<MenuItemRecord[]>([]);
   const [categories, setCategories] = useState<MenuCategoryItem[]>([]);
@@ -35,7 +43,7 @@ export default function AdminMenuItemsPage() {
     }
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { void loadData(); }, []);
 
   async function handleCreate(payload: MenuItemCreatePayload) {
     await apiPost("/menu/items-with-pricing", payload);
@@ -79,72 +87,65 @@ export default function AdminMenuItemsPage() {
   }
 
   return (
-    <main style={{ padding: 24, display: "grid", gap: 24 }}>
+    <main style={{ padding: 24, display: "grid", gap: 24, maxWidth: 1200, margin: "0 auto" }}>
       <div>
-        <h1>Menu Items</h1>
-        <p>Create regular items, maid services, and combos.</p>
+        <h1 style={{ marginBottom: 6 }}>Menu Items</h1>
+        <p style={{ margin: 0, color: "#6b7280" }}>Create regular items, maid services, and combos.</p>
       </div>
 
-      <MenuItemForm
-        categories={categories}
-        allItems={items}
-        editingItem={editingItem}
-        onCreate={handleCreate}
-        onUpdate={handleUpdate}
-        onCancelEdit={() => setEditingItem(null)}
-      />
+      <MenuItemForm categories={categories} allItems={items} editingItem={editingItem} onCreate={handleCreate} onUpdate={handleUpdate} onCancelEdit={() => setEditingItem(null)} />
 
-      <section style={{ display: "grid", gap: 12 }}>
-        <h2>Menu Item List</h2>
+      <section style={{ display: "grid", gap: 14 }}>
+        <h2 style={{ marginBottom: 0 }}>Menu Item List</h2>
         {loading ? <p>Loading...</p> : null}
         {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
         {!loading && !error && items.length === 0 ? <p>No menu items yet.</p> : null}
 
-        {items.map((item) => (
-          <article key={item.id} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 16, display: "grid", gap: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <div>
-                <strong>{item.name}</strong>
-                {item.is_bundle ? <span style={{ marginLeft: 8, color: "#7c3aed" }}>Combo</span> : null}
-                <span style={{ marginLeft: 8, color: item.is_active ? "#047857" : "#b91c1c" }}>
-                  {item.is_active ? "Active" : "Inactive"}
-                </span>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+          {items.map((item) => (
+            <article key={item.id} style={{ border: "1px solid #d1d5db", borderRadius: 16, padding: 18, display: "grid", gap: 10, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
+                <div>
+                  <strong style={{ fontSize: 18 }}>{item.name}</strong>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+                    <span style={{ padding: "3px 8px", borderRadius: 999, background: item.is_active ? "#d1fae5" : "#fee2e2", color: item.is_active ? "#065f46" : "#991b1b", fontSize: 12, fontWeight: 700 }}>{item.is_active ? "Active" : "Inactive"}</span>
+                    <span style={{ padding: "3px 8px", borderRadius: 999, background: "#e0e7ff", color: "#3730a3", fontSize: 12, fontWeight: 700 }}>{item.item_type === "maid_service" ? "Maid Service" : item.is_bundle ? "Combo" : "Regular"}</span>
+                  </div>
+                </div>
+                <strong style={{ fontSize: 18 }}>${Number(item.price).toFixed(2)}</strong>
               </div>
-              <strong>${item.price}</strong>
-            </div>
-            <div>Type: {item.item_type === "maid_service" ? "Maid Service" : "Regular"}</div>
-            <div>Category: {categoryName(item.category_id)}</div>
-            <div>Description: {item.description || "—"}</div>
 
-            {item.is_bundle ? (
-              <div style={{ padding: 10, background: "#faf5ff", borderRadius: 10 }}>
-                <strong>Components</strong>
-                <ul style={{ marginBottom: 0 }}>
-                  {item.components.map((component) => (
-                    <li key={component.id}>
-                      {component.quantity} × {component.menu_item_name} → {component.production_station}
-                    </li>
-                  ))}
-                </ul>
+              <div style={{ color: "#4b5563", lineHeight: 1.6 }}>
+                <div><strong>Category:</strong> {categoryName(item.category_id)}</div>
+                <div><strong>Description:</strong> {item.description || "—"}</div>
               </div>
-            ) : null}
 
-            {item.item_type === "maid_service" ? (
-              <div>
-                Additional Maid Price: {item.maid_service_pricing?.additional_maid_price ?? "—"}<br />
-                All Maids Price: {item.maid_service_pricing?.all_maids_price ?? "—"}
+              {item.is_bundle ? (
+                <div style={{ padding: 12, background: "#faf5ff", border: "1px solid #ddd6fe", borderRadius: 12 }}>
+                  <strong>Combo Components</strong>
+                  <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+                    {item.components.map((component) => (
+                      <li key={component.id}>{component.quantity} × {component.menu_item_name} · {component.item_type === "maid_service" ? "Maid Service" : component.production_station}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {item.item_type === "maid_service" ? (
+                <div style={{ padding: 10, borderRadius: 10, background: "#f9fafb" }}>
+                  Additional Maid: ${Number(item.maid_service_pricing?.additional_maid_price ?? 0).toFixed(2)}<br />
+                  All Maids: {item.maid_service_pricing?.all_maids_price != null ? `$${Number(item.maid_service_pricing.all_maids_price).toFixed(2)}` : "—"}
+                </div>
+              ) : null}
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 4 }}>
+                <button type="button" onClick={() => { setEditingItem(item); window.scrollTo({ top: 0, behavior: "smooth" }); }} disabled={actionLoadingId === item.id} style={{ ...buttonBase, border: "1px solid #7c3aed", background: "#fff", color: "#6d28d9" }}>Edit</button>
+                <button type="button" onClick={() => handleToggleActive(item)} disabled={actionLoadingId === item.id} style={{ ...buttonBase, border: "none", background: item.is_active ? "#f59e0b" : "#059669", color: "#fff" }}>{actionLoadingId === item.id ? "Saving..." : item.is_active ? "Deactivate" : "Activate"}</button>
+                <button type="button" onClick={() => handleDelete(item)} disabled={actionLoadingId === item.id} style={{ ...buttonBase, border: "none", background: "#dc2626", color: "#fff" }}>{actionLoadingId === item.id ? "Working..." : "Delete"}</button>
               </div>
-            ) : null}
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button onClick={() => setEditingItem(item)} disabled={actionLoadingId === item.id}>Edit</button>
-              <button onClick={() => handleToggleActive(item)} disabled={actionLoadingId === item.id}>
-                {item.is_active ? "Set Inactive" : "Set Active"}
-              </button>
-              <button onClick={() => handleDelete(item)} disabled={actionLoadingId === item.id}>Delete</button>
-            </div>
-          </article>
-        ))}
+            </article>
+          ))}
+        </div>
       </section>
     </main>
   );

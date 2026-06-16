@@ -63,9 +63,14 @@ export default function MenuTabs({
     return byType.filter((item) => item.category_id === regularCategoryFilter);
   }, [items, activeTab, regularCategoryFilter]);
 
-  function getItemStation(item: MenuItemRecord): ProductionStation {
-    if (item.category_id == null) return "none";
-    return categoriesById.get(item.category_id)?.production_station ?? "none";
+  function getItemStations(item: MenuItemRecord): ProductionStation[] {
+    if (item.is_bundle && item.components.length > 0) {
+      return Array.from(
+        new Set(item.components.map((component) => component.production_station)),
+      );
+    }
+    if (item.category_id == null) return ["none"];
+    return [categoriesById.get(item.category_id)?.production_station ?? "none"];
   }
 
   return (
@@ -147,9 +152,14 @@ export default function MenuTabs({
         }}
       >
         {filteredItems.map((item) => {
-          const station = getItemStation(item);
-          const isClosed = closedStations[station];
-          const closedLabel = stationLabel(station);
+          const stations = getItemStations(item);
+          const closedStation = stations.find(
+            (station) => station !== "none" && closedStations[station],
+          );
+          const isClosed = closedStation != null;
+          const closedLabel = closedStation ? stationLabel(closedStation) : "";
+          const needsMaidSelection =
+            item.item_type === "maid_service" || item.requires_maid_selection;
 
           return (
             <article
@@ -204,9 +214,9 @@ export default function MenuTabs({
                 type="button"
                 disabled={isClosed}
                 onClick={() =>
-                  item.item_type === "regular"
-                    ? onAddRegular(item)
-                    : onOpenMaidService(item)
+                  needsMaidSelection
+                    ? onOpenMaidService(item)
+                    : onAddRegular(item)
                 }
                 style={{
                   padding: "10px 14px",
@@ -219,9 +229,9 @@ export default function MenuTabs({
               >
                 {isClosed
                   ? "Ordering Closed"
-                  : item.item_type === "regular"
-                    ? "Add"
-                    : "Select Maid"}
+                  : needsMaidSelection
+                    ? "Select Maid"
+                    : "Add"}
               </button>
             </article>
           );

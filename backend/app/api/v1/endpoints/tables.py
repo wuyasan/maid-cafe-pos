@@ -33,15 +33,17 @@ def build_session_table_summary(
         is_shareable=table.is_shareable,
         status=session_table.status,
         current_party_size=session_table.current_party_size,
+        layout_x=table.layout_x,
+        layout_y=table.layout_y,
+        layout_width=table.layout_width,
+        layout_height=table.layout_height,
+        layout_shape=table.layout_shape,
     )
 
 
 def validate_party_size(table: Table, party_size: int) -> None:
     if party_size < 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Party size cannot be negative.",
-        )
+        raise HTTPException(status_code=400, detail="Party size cannot be negative.")
 
     if party_size > table.seats:
         raise HTTPException(
@@ -53,10 +55,7 @@ def validate_party_size(table: Table, party_size: int) -> None:
         )
 
 
-def sync_active_tables_to_session(
-    db: Session,
-    session_id: int,
-) -> None:
+def sync_active_tables_to_session(db: Session, session_id: int) -> None:
     active_tables = list(
         db.execute(
             select(Table)
@@ -78,23 +77,24 @@ def sync_active_tables_to_session(
     )
 
     for table in active_tables:
-        if table.id in existing_table_ids:
-            continue
-
-        db.add(
-            SessionTable(
-                session_id=session_id,
-                table_id=table.id,
-                status=SessionTableStatus.available,
-                current_party_size=0,
+        if table.id not in existing_table_ids:
+            db.add(
+                SessionTable(
+                    session_id=session_id,
+                    table_id=table.id,
+                    status=SessionTableStatus.available,
+                    current_party_size=0,
+                )
             )
-        )
 
 
 @router.get("/", response_model=list[TableRead])
 def list_tables(db: Session = Depends(get_db)):
-    stmt = select(Table).order_by(Table.code.asc(), Table.id.asc())
-    return list(db.execute(stmt).scalars().all())
+    return list(
+        db.execute(select(Table).order_by(Table.code.asc(), Table.id.asc()))
+        .scalars()
+        .all()
+    )
 
 
 @router.post("/", response_model=TableRead)
@@ -116,6 +116,11 @@ def create_table(payload: TableCreate, db: Session = Depends(get_db)):
         seats=payload.seats,
         is_active=payload.is_active,
         is_shareable=payload.is_shareable,
+        layout_x=payload.layout_x,
+        layout_y=payload.layout_y,
+        layout_width=payload.layout_width,
+        layout_height=payload.layout_height,
+        layout_shape=payload.layout_shape,
     )
     db.add(table)
     db.flush()
@@ -153,7 +158,7 @@ def update_table(
         if not update_data["code"]:
             raise HTTPException(status_code=400, detail="Table code is required.")
 
-        existing = (
+        duplicate = (
             db.execute(
                 select(Table).where(
                     Table.code == update_data["code"],
@@ -163,11 +168,8 @@ def update_table(
             .scalars()
             .first()
         )
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail="Table code already exists.",
-            )
+        if duplicate:
+            raise HTTPException(status_code=400, detail="Table code already exists.")
 
     current_session = get_current_active_session(db)
 
@@ -182,7 +184,6 @@ def update_table(
             .scalars()
             .first()
         )
-
         if (
             current_session_table
             and update_data["seats"] < current_session_table.current_party_size
@@ -212,7 +213,6 @@ def update_table(
             .scalars()
             .first()
         )
-
         if not existing_session_table:
             db.add(
                 SessionTable(
@@ -239,10 +239,7 @@ def delete_table(table_id: int, db: Session = Depends(get_db)):
     return {"success": True, "deleted_id": table_id}
 
 
-@router.get(
-    "/session-tables",
-    response_model=list[SessionTableAdminSummary],
-)
+@router.get("/session-tables", response_model=list[SessionTableAdminSummary])
 def list_session_tables(
     session_id: int = Query(...),
     db: Session = Depends(get_db),
@@ -289,17 +286,13 @@ def sync_active_session_tables(
             .order_by(Table.code.asc(), Table.id.asc())
         ).all()
     )
-
     return [
         build_session_table_summary(session_table, table)
         for session_table, table in rows
     ]
 
 
-@router.post(
-    "/session-tables",
-    response_model=SessionTableAdminSummary,
-)
+@router.post("/session-tables", response_model=SessionTableAdminSummary)
 def create_session_table(
     payload: SessionTableCreate,
     db: Session = Depends(get_db),
@@ -330,22 +323,23 @@ def create_session_table(
             detail="This table is already linked to the session.",
         )
 
-    normalized_status = payload.status
-    if payload.current_party_size == 0:
-        normalized_status = SessionTableStatus.available
-    elif normalized_status != SessionTableStatus.paying:
-        normalized_status = SessionTableStatus.occupied
+    status = (
+        SessionTableStatus.available
+        if payload.current_party_size == 0
+        else SessionTableStatus.occupied
+    )
+    if payload.status == SessionTableStatus.paying:
+        status = SessionTableStatus.paying
 
     session_table = SessionTable(
         session_id=payload.session_id,
         table_id=payload.table_id,
-        status=normalized_status,
+        status=status,
         current_party_size=payload.current_party_size,
     )
     db.add(session_table)
     db.commit()
     db.refresh(session_table)
-
     return build_session_table_summary(session_table, table)
 
 
@@ -366,22 +360,16 @@ def add_party_to_session_table(
     if not table:
         raise HTTPException(status_code=404, detail="Table not found.")
 
-    if session_table.status == SessionTableStatus.paying:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot add a party while this table is checking out.",
-        )
-
     if session_table.current_party_size > 0 and not table.is_shareable:
         raise HTTPException(
             status_code=400,
             detail=f"Table {table.code} does not allow shared seating.",
         )
 
-    new_party_size = session_table.current_party_size + payload.party_size
-    validate_party_size(table, new_party_size)
+    new_size = session_table.current_party_size + payload.party_size
+    validate_party_size(table, new_size)
 
-    session_table.current_party_size = new_party_size
+    session_table.current_party_size = new_size
     session_table.status = SessionTableStatus.occupied
 
     db.commit()
@@ -416,24 +404,7 @@ def update_session_table(
             session_table.status = SessionTableStatus.occupied
 
     if payload.status is not None:
-        if payload.status == SessionTableStatus.available:
-            session_table.current_party_size = 0
-            session_table.status = SessionTableStatus.available
-        elif payload.status == SessionTableStatus.paying:
-            session_table.status = SessionTableStatus.paying
-        elif payload.status in {
-            SessionTableStatus.occupied,
-            SessionTableStatus.ready,
-        }:
-            if session_table.current_party_size == 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Set the party size before marking the table occupied.",
-                )
-            session_table.status = SessionTableStatus.occupied
-        elif payload.status == SessionTableStatus.paid:
-            session_table.current_party_size = 0
-            session_table.status = SessionTableStatus.available
+        session_table.status = payload.status
 
     db.commit()
     db.refresh(session_table)

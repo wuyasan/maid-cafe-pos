@@ -65,6 +65,7 @@ class BundleComponentRead(BaseModel):
     menu_item_name: str
     quantity: int
     production_station: ProductionStation
+    item_type: MenuItemType
 
 
 class MenuItemBase(BaseModel):
@@ -101,6 +102,7 @@ class MenuItemRead(MenuItemBase):
     created_at: datetime
     maid_service_pricing: Optional[MaidServicePricingRead] = None
     components: list[BundleComponentRead] = Field(default_factory=list)
+    requires_maid_selection: bool = False
 
 
 class MenuItemWithPricingCreate(MenuItemBase):

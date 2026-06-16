@@ -56,7 +56,6 @@ export default function MenuItemForm({
       allItems.filter(
         (item) =>
           item.id !== editingItem?.id &&
-          item.item_type === "regular" &&
           !item.is_bundle &&
           item.is_active,
       ),
@@ -280,7 +279,7 @@ export default function MenuItemForm({
           <div>
             <strong>Combo Components</strong>
             <p style={{ margin: "4px 0 0", color: "#6b7280", fontSize: 13 }}>
-              The customer sees and pays for the combo. Kitchen and bar receive these components separately.
+              The customer sees and pays for the combo. Kitchen and bar receive production components separately. Maid Service components will require maid selection when ordering.
             </p>
           </div>
 
@@ -298,7 +297,7 @@ export default function MenuItemForm({
                       const category = categories.find((c) => c.id === item.category_id);
                       return (
                         <option key={item.id} value={item.id}>
-                          {item.name} · {category?.production_station ?? "none"}
+                          {item.name} · {item.item_type === "maid_service" ? "Maid Service" : category?.production_station ?? "none"}
                         </option>
                       );
                     })}

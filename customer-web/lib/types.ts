@@ -42,6 +42,15 @@ export type SessionMaidAdminItem = {
   maid_photo_url?: string | null;
 };
 
+export type BundleComponent = {
+  id: number;
+  menu_item_id: number;
+  menu_item_name: string;
+  quantity: number;
+  production_station: ProductionStation;
+  item_type: MenuItemType;
+};
+
 export type MenuItemRecord = {
   id: number;
   name: string;
@@ -51,6 +60,9 @@ export type MenuItemRecord = {
   category_id?: number | null;
   item_type: MenuItemType;
   is_active: boolean;
+  is_bundle: boolean;
+  requires_maid_selection: boolean;
+  components: BundleComponent[];
   created_at: string;
   maid_service_pricing?: {
     id: number;
@@ -92,7 +104,7 @@ export type BillDetail = {
 };
 
 export type CustomerOrderPayload = {
-  source: "qr";
+  source: "qr" | "staff";
   items: {
     menu_item_id: number;
     quantity: number;

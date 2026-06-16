@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from typing import List
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -25,6 +33,17 @@ class Table(Base, TimestampMixin):
     is_shareable: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False,
+    )
+
+    # Percent values inside the floor-plan canvas.
+    layout_x: Mapped[float] = mapped_column(Float, default=5, nullable=False)
+    layout_y: Mapped[float] = mapped_column(Float, default=5, nullable=False)
+    layout_width: Mapped[float] = mapped_column(Float, default=16, nullable=False)
+    layout_height: Mapped[float] = mapped_column(Float, default=18, nullable=False)
+    layout_shape: Mapped[str] = mapped_column(
+        String(20),
+        default="rectangle",
         nullable=False,
     )
 
