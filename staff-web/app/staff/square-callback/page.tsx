@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 import { useSearchParams } from "next/navigation";
 
 import { apiPostNoBody } from "@/lib/api";
@@ -10,13 +13,20 @@ import {
   type PendingSquareCheckout,
 } from "@/lib/squarePos";
 
-type CallbackState = "processing" | "success" | "error";
+type CallbackState =
+  | "processing"
+  | "success"
+  | "error";
 
-function parseIosData(raw: string | null) {
-  if (!raw) return null;
+function parseSquareData(raw: string | null) {
+  if (!raw) {
+    return null;
+  }
 
   try {
-    return JSON.parse(decodeURIComponent(raw)) as {
+    return JSON.parse(
+      decodeURIComponent(raw),
+    ) as {
       status?: string;
       error_code?: string;
       transaction_id?: string;
@@ -33,9 +43,13 @@ function parseIosData(raw: string | null) {
 
 export default function SquareCallbackPage() {
   const searchParams = useSearchParams();
-  const [state, setState] = useState<CallbackState>("processing");
-  const [message, setMessage] = useState("Confirming Square payment...");
-  const [tableCode, setTableCode] = useState("");
+  const [state, setState] =
+    useState<CallbackState>("processing");
+  const [message, setMessage] = useState(
+    "Confirming Square payment...",
+  );
+  const [tableCode, setTableCode] =
+    useState("");
 
   useEffect(() => {
     async function finish() {
@@ -43,44 +57,44 @@ export default function SquareCallbackPage() {
         SQUARE_PENDING_CHECKOUT_KEY,
       );
 
-      let pending: PendingSquareCheckout | null = null;
+      let pending:
+        | PendingSquareCheckout
+        | null = null;
+
       if (saved) {
         try {
-          pending = JSON.parse(saved) as PendingSquareCheckout;
+          pending = JSON.parse(
+            saved,
+          ) as PendingSquareCheckout;
         } catch {
           pending = null;
         }
       }
 
-      const ios = parseIosData(searchParams.get("data"));
-      const androidError = searchParams.get("com.squareup.pos.ERROR_CODE");
-      const androidTransaction =
-        searchParams.get("com.squareup.pos.SERVER_TRANSACTION_ID") ||
-        searchParams.get("com.squareup.pos.CLIENT_TRANSACTION_ID");
-
-      const succeeded =
-        ios?.status === "ok" ||
-        Boolean(ios?.transaction_id) ||
-        Boolean(androidTransaction);
-
-      const errorCode = ios?.error_code || androidError;
+      const result = parseSquareData(
+        searchParams.get("data"),
+      );
 
       if (!pending) {
         setState("error");
         setMessage(
-          "Square returned, but the pending table could not be found. Open the table and use “Square Paid · Mark Bill Paid” after confirming the payment.",
+          "Square returned, but the pending table could not be found. Confirm the payment in Square before using the manual Mark Paid button.",
         );
         return;
       }
 
       setTableCode(pending.tableCode);
 
+      const succeeded =
+        result?.status === "ok" ||
+        Boolean(result?.transaction_id);
+
       if (!succeeded) {
         setState("error");
         setMessage(
-          errorCode
-            ? `Square did not complete the payment: ${errorCode}`
-            : "Square did not return a successful payment result. Confirm the payment in Square before marking the bill paid.",
+          result?.error_code
+            ? `Square did not complete payment: ${result.error_code}`
+            : "Square payment was cancelled or did not return a successful result.",
         );
         return;
       }
@@ -92,7 +106,10 @@ export default function SquareCallbackPage() {
           )}/mark-paid`,
         );
 
-        window.localStorage.removeItem(SQUARE_PENDING_CHECKOUT_KEY);
+        window.localStorage.removeItem(
+          SQUARE_PENDING_CHECKOUT_KEY,
+        );
+
         setState("success");
         setMessage(
           `Payment confirmed. Table ${pending.tableCode} is available again.`,
@@ -128,13 +145,19 @@ export default function SquareCallbackPage() {
           borderRadius: 20,
           background: "#ffffff",
           border: "1px solid #e5e7eb",
-          boxShadow: "0 14px 40px rgba(15,23,42,.09)",
+          boxShadow:
+            "0 14px 40px rgba(15,23,42,.09)",
           textAlign: "center",
         }}
       >
-        <div style={{ fontSize: 45 }}>
-          {state === "processing" ? "⏳" : state === "success" ? "✅" : "⚠️"}
+        <div style={{ fontSize: 46 }}>
+          {state === "processing"
+            ? "⏳"
+            : state === "success"
+              ? "✅"
+              : "⚠️"}
         </div>
+
         <h1>
           {state === "processing"
             ? "Processing Payment"
@@ -142,7 +165,15 @@ export default function SquareCallbackPage() {
               ? "Payment Complete"
               : "Payment Needs Review"}
         </h1>
-        <p style={{ color: "#64748b", lineHeight: 1.6 }}>{message}</p>
+
+        <p
+          style={{
+            color: "#64748b",
+            lineHeight: 1.6,
+          }}
+        >
+          {message}
+        </p>
 
         <div
           style={{
@@ -155,7 +186,9 @@ export default function SquareCallbackPage() {
         >
           {tableCode ? (
             <Link
-              href={`/staff/table/${encodeURIComponent(tableCode)}`}
+              href={`/staff/table/${encodeURIComponent(
+                tableCode,
+              )}`}
               style={{
                 padding: "11px 16px",
                 borderRadius: 11,
@@ -174,7 +207,8 @@ export default function SquareCallbackPage() {
             style={{
               padding: "11px 16px",
               borderRadius: 11,
-              border: "1px solid #d1d5db",
+              border:
+                "1px solid #d1d5db",
               color: "#111827",
               textDecoration: "none",
               fontWeight: 850,

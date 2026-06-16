@@ -19,48 +19,77 @@ function money(value?: string | null) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
-export default function StaffSingleTablePage({ params }: Props) {
+export default function StaffSingleTablePage({
+  params,
+}: Props) {
   const [tableCode, setTableCode] = useState("");
   const [bill, setBill] = useState<BillDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [action, setAction] = useState<"square" | "paid" | null>(null);
+  const [actionLoading, setActionLoading] =
+    useState<"square" | "paid" | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    params.then((value) => setTableCode(value.tableCode));
+    params.then((value) => {
+      setTableCode(value.tableCode);
+    });
   }, [params]);
 
   async function loadBill(code: string) {
+    setLoading(true);
+    setError("");
+
     try {
-      setLoading(true);
-      setError("");
-      setBill(
-        await apiGet<BillDetail>(
-          `/customer-orders/customer/table/${encodeURIComponent(code)}/bill`,
-        ),
+      const result = await apiGet<BillDetail>(
+        `/customer-orders/customer/table/${encodeURIComponent(
+          code,
+        )}/bill`,
       );
+
+      setBill(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load bill");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load bill",
+      );
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (tableCode) void loadBill(tableCode);
+    if (tableCode) {
+      void loadBill(tableCode);
+    }
   }, [tableCode]);
 
-  async function openSquare() {
-    if (!bill || !tableCode) return;
+  async function payInSquare() {
+    if (!bill || !tableCode) {
+      return;
+    }
 
     try {
-      setAction("square");
+      setActionLoading("square");
       setError("");
       setMessage("");
 
+      /*
+       * Build and validate the Square URL before changing the bill
+       * to paying. Missing environment variables therefore cannot
+       * leave the table stuck in checkout mode.
+       */
+      const squareUrl = buildSquarePosUrl({
+        total: bill.total,
+        tableCode,
+        billId: bill.id,
+      });
+
       await apiPostNoBody(
-        `/staff/table/${encodeURIComponent(tableCode)}/start-checkout`,
+        `/staff/table/${encodeURIComponent(
+          tableCode,
+        )}/start-checkout`,
       );
 
       const pending: PendingSquareCheckout = {
@@ -75,40 +104,63 @@ export default function StaffSingleTablePage({ params }: Props) {
         JSON.stringify(pending),
       );
 
-      window.location.href = buildSquarePosUrl({
-        total: bill.total,
-        tableCode,
-        billId: bill.id,
-      });
+      /*
+       * On iPad Safari this opens Square Point of Sale.
+       * In the native WKWebView wrapper, StaffWebView intercepts
+       * square-commerce-v1 and opens the Square app.
+       */
+      window.location.href = squareUrl;
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not open Square POS",
+        err instanceof Error
+          ? err.message
+          : "Could not open Square Point of Sale",
       );
-      setAction(null);
+      setActionLoading(null);
     }
   }
 
   async function markPaidManually() {
-    if (!tableCode) return;
+    if (!tableCode) {
+      return;
+    }
 
     const confirmed = window.confirm(
-      "Only continue after the payment has completed in Square. Mark this bill paid?",
+      "Only continue after Square shows a successful payment. Mark this bill paid?",
     );
-    if (!confirmed) return;
+
+    if (!confirmed) {
+      return;
+    }
 
     try {
-      setAction("paid");
+      setActionLoading("paid");
       setError("");
+      setMessage("");
+
       await apiPostNoBody(
-        `/staff/table/${encodeURIComponent(tableCode)}/mark-paid`,
+        `/staff/table/${encodeURIComponent(
+          tableCode,
+        )}/mark-paid`,
       );
-      window.localStorage.removeItem(SQUARE_PENDING_CHECKOUT_KEY);
-      setMessage("Payment recorded. The table is now available.");
+
+      window.localStorage.removeItem(
+        SQUARE_PENDING_CHECKOUT_KEY,
+      );
+
+      setMessage(
+        "Payment recorded. The table is available again.",
+      );
+
       await loadBill(tableCode);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to mark paid");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to mark bill paid",
+      );
     } finally {
-      setAction(null);
+      setActionLoading(null);
     }
   }
 
@@ -132,9 +184,16 @@ export default function StaffSingleTablePage({ params }: Props) {
         }}
       >
         <div>
-          <h1 style={{ margin: 0 }}>Table {tableCode}</h1>
-          <p style={{ margin: "7px 0 0", color: "#64748b" }}>
-            Bill and mobile Square checkout
+          <h1 style={{ margin: 0 }}>
+            Table {tableCode}
+          </h1>
+          <p
+            style={{
+              margin: "7px 0 0",
+              color: "#64748b",
+            }}
+          >
+            iPad checkout with Square Reader
           </p>
         </div>
 
@@ -150,7 +209,7 @@ export default function StaffSingleTablePage({ params }: Props) {
             fontWeight: 800,
           }}
         >
-          Back to Floor Map
+          Back to Floor
         </Link>
       </div>
 
@@ -188,7 +247,8 @@ export default function StaffSingleTablePage({ params }: Props) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) minmax(280px, 340px)",
+            gridTemplateColumns:
+              "minmax(0, 1fr) minmax(280px, 340px)",
             gap: 20,
             alignItems: "start",
           }}
@@ -201,12 +261,21 @@ export default function StaffSingleTablePage({ params }: Props) {
               padding: 18,
             }}
           >
-            <h2 style={{ marginTop: 0 }}>Bill Items</h2>
+            <h2 style={{ marginTop: 0 }}>
+              Bill Items
+            </h2>
 
             {bill.items.length === 0 ? (
-              <p style={{ color: "#64748b" }}>No items yet.</p>
+              <p style={{ color: "#64748b" }}>
+                No items yet.
+              </p>
             ) : (
-              <div style={{ display: "grid", gap: 11 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gap: 11,
+                }}
+              >
                 {bill.items.map((item) => (
                   <article
                     key={item.order_item_id}
@@ -220,7 +289,10 @@ export default function StaffSingleTablePage({ params }: Props) {
                     }}
                   >
                     <div>
-                      <strong>{item.menu_item_name}</strong>
+                      <strong>
+                        {item.menu_item_name}
+                      </strong>
+
                       <div
                         style={{
                           marginTop: 4,
@@ -228,8 +300,10 @@ export default function StaffSingleTablePage({ params }: Props) {
                           fontSize: 13,
                         }}
                       >
-                        Qty {item.quantity} · Unit {money(item.unit_price)}
+                        Qty {item.quantity} · Unit{" "}
+                        {money(item.unit_price)}
                       </div>
+
                       {item.selected_maids?.length ? (
                         <div
                           style={{
@@ -241,12 +315,18 @@ export default function StaffSingleTablePage({ params }: Props) {
                         >
                           Maid:{" "}
                           {item.selected_maids
-                            .map((maid) => maid.maid_name)
+                            .map(
+                              (maid) =>
+                                maid.maid_name,
+                            )
                             .join(", ")}
                         </div>
                       ) : null}
                     </div>
-                    <strong>{money(item.total_price)}</strong>
+
+                    <strong>
+                      {money(item.total_price)}
+                    </strong>
                   </article>
                 ))}
               </div>
@@ -263,45 +343,79 @@ export default function StaffSingleTablePage({ params }: Props) {
               gap: 12,
             }}
           >
-            <h2 style={{ margin: 0 }}>Checkout</h2>
+            <h2 style={{ margin: 0 }}>
+              Checkout
+            </h2>
 
-            <div style={{ display: "grid", gap: 7 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div
+              style={{
+                display: "grid",
+                gap: 7,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                }}
+              >
                 <span>Subtotal</span>
-                <strong>{money(bill.subtotal)}</strong>
+                <strong>
+                  {money(bill.subtotal)}
+                </strong>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                }}
+              >
                 <span>Tax</span>
-                <strong>{money(bill.tax)}</strong>
+                <strong>
+                  {money(bill.tax)}
+                </strong>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                }}
+              >
                 <span>Service</span>
-                <strong>{money(bill.service_charge)}</strong>
+                <strong>
+                  {money(bill.service_charge)}
+                </strong>
               </div>
+
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
                   paddingTop: 10,
-                  borderTop: "1px solid #e5e7eb",
+                  borderTop:
+                    "1px solid #e5e7eb",
                   fontSize: 22,
                 }}
               >
                 <span>Total</span>
-                <strong>{money(bill.total)}</strong>
+                <strong>
+                  {money(bill.total)}
+                </strong>
               </div>
             </div>
 
             <button
               type="button"
               disabled={
-                action !== null ||
+                actionLoading !== null ||
                 bill.items.length === 0 ||
                 bill.status === "paid"
               }
-              onClick={() => void openSquare()}
+              onClick={() => void payInSquare()}
               style={{
-                minHeight: 52,
+                minHeight: 54,
                 border: 0,
                 borderRadius: 13,
                 background: "#111827",
@@ -310,45 +424,56 @@ export default function StaffSingleTablePage({ params }: Props) {
                 fontSize: 16,
                 cursor: "pointer",
                 opacity:
-                  action !== null || bill.items.length === 0 ? 0.55 : 1,
+                  actionLoading !== null ||
+                  bill.items.length === 0
+                    ? 0.55
+                    : 1,
               }}
             >
-              {action === "square"
+              {actionLoading === "square"
                 ? "Opening Square..."
-                : "Pay in Square App"}
+                : "Pay with iPad Square Reader"}
             </button>
 
             <button
               type="button"
-              disabled={action !== null || bill.status === "paid"}
-              onClick={() => void markPaidManually()}
+              disabled={
+                actionLoading !== null ||
+                bill.status === "paid"
+              }
+              onClick={() =>
+                void markPaidManually()
+              }
               style={{
                 minHeight: 46,
                 borderRadius: 12,
-                border: "1px solid #d1d5db",
+                border:
+                  "1px solid #d1d5db",
                 background: "#ffffff",
                 color: "#111827",
                 fontWeight: 850,
                 cursor: "pointer",
               }}
             >
-              {action === "paid"
+              {actionLoading === "paid"
                 ? "Saving..."
                 : "Square Paid · Mark Bill Paid"}
             </button>
 
-            <p
+            <div
               style={{
-                margin: 0,
-                color: "#64748b",
+                padding: 11,
+                borderRadius: 11,
+                background: "#f8fafc",
+                color: "#475569",
                 fontSize: 12,
-                lineHeight: 1.5,
+                lineHeight: 1.55,
               }}
             >
-              The first button opens Square Point of Sale on a supported iOS or
-              Android phone. The second button is a fallback when Square does
-              not return to this browser automatically.
-            </p>
+              The Square Reader must already be paired
+              inside the Square Point of Sale app on this
+              same iPad.
+            </div>
           </aside>
         </div>
       ) : null}

@@ -1,0 +1,12 @@
+<!-- Allow the app to check/open Square Point of Sale. -->
+<key>LSApplicationQueriesSchemes</key>
+<array>
+    <string>square-commerce-v1</string>
+</array>
+
+<!-- Development only when Staff Web uses local HTTP. Use HTTPS in production. -->
+<key>NSAppTransportSecurity</key>
+<dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
+</dict>
