@@ -11,6 +11,8 @@ from app.api.v1.endpoints import (
     staff_checkout,
     tables,
     uploads,
+
+    staff_order_items,
 )
 
 api_router = APIRouter()
@@ -25,6 +27,7 @@ api_router.include_router(
     tags=["customer-orders"],
 )
 api_router.include_router(staff_checkout.router)
+api_router.include_router(staff_order_items.router)
 api_router.include_router(session_maids.router)
 api_router.include_router(production.router)
 api_router.include_router(uploads.router)

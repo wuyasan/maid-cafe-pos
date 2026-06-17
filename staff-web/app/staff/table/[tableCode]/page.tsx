@@ -1,5 +1,7 @@
 "use client";
 
+import DeleteBillItemButton from "@/components/staff/DeleteBillItemButton";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -463,9 +465,26 @@ export default function StaffSingleTablePage({
                     </div>
 
                     <strong>
-                      {money(
-                        item.total_price,
-                      )}
+                      <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        gap: 10,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <strong>
+                        {money(item.total_price)}
+                      </strong>
+
+                      <DeleteBillItemButton
+                        orderItemId={item.order_item_id}
+                        itemName={item.menu_item_name}
+                        quantity={item.quantity}
+                        onDeleted={() => loadBill(tableCode)}
+                      />
+                    </div>
                     </strong>
                   </article>
                 ))}

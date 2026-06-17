@@ -127,6 +127,44 @@ export type BillDetail = {
   id: number; session_table_id: number; status: string; subtotal: string; tax: string;
   service_charge: string; total: string; opened_at: string; closed_at?: string | null; items: BillItem[];
 };
-export type SessionSummaryMaidCount = { maid_id: number; maid_name: string; total_ordered: number };
-export type SessionSummaryItem = { menu_item_id: number; menu_item_name: string; item_type: string; total_ordered: number; total_sales: string; maid_breakdown: SessionSummaryMaidCount[] };
-export type SessionSummaryResponse = { session_id: number; session_name: string; items: SessionSummaryItem[] };
+export type SessionSummaryMaidCount = {
+  maid_id: number;
+  maid_name: string;
+  total_ordered: number;
+};
+
+export type SessionSummarySetSource = {
+  set_menu_item_id: number;
+  set_menu_item_name: string;
+  set_quantity_ordered: number;
+  component_quantity_per_set: number;
+  quantity_from_set: number;
+};
+
+export type SessionSummarySetComponent = {
+  menu_item_id: number;
+  menu_item_name: string;
+  item_type: string;
+  quantity_per_set: number;
+  total_quantity_from_set: number;
+};
+
+export type SessionSummaryItem = {
+  menu_item_id: number;
+  menu_item_name: string;
+  item_type: string;
+  is_bundle: boolean;
+  total_ordered: number;
+  direct_ordered: number;
+  from_sets: number;
+  total_sales: string;
+  maid_breakdown: SessionSummaryMaidCount[];
+  set_components: SessionSummarySetComponent[];
+  from_set_breakdown: SessionSummarySetSource[];
+};
+
+export type SessionSummaryResponse = {
+  session_id: number;
+  session_name: string;
+  items: SessionSummaryItem[];
+};

@@ -9,12 +9,14 @@ from app.core.database import get_db
 from app.models.bill import Bill
 from app.models.enums import BillStatus, SessionTableStatus
 from app.models.maid import Maid
-from app.models.menu import MenuItem
+from app.models.menu import MenuItem, MenuItemComponent
 from app.models.order import Order, OrderItem, OrderItemMaid
 from app.models.session import Session as SessionModel
 from app.models.table import SessionTable, Table
 from app.schemas.staff import (
     SessionSummaryItem,
+    SessionSummarySetSource,
+    SessionSummarySetComponent,
     SessionSummaryMaidCount,
     SessionSummaryResponse,
 )
@@ -132,16 +134,18 @@ def get_session_summary(
     db: Session = Depends(get_db),
 ):
     session_obj = db.get(SessionModel, session_id)
+
     if not session_obj:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-    item_rows = db.execute(
+    direct_rows = db.execute(
         select(
             MenuItem.id.label("menu_item_id"),
             MenuItem.name.label("menu_item_name"),
             MenuItem.item_type.label("item_type"),
+            MenuItem.is_bundle.label("is_bundle"),
             func.coalesce(func.sum(OrderItem.quantity), 0).label(
-                "total_ordered"
+                "direct_ordered"
             ),
             func.coalesce(func.sum(OrderItem.total_price), 0).label(
                 "total_sales"
@@ -152,9 +156,133 @@ def get_session_summary(
         .join(Bill, Bill.id == Order.bill_id)
         .join(SessionTable, SessionTable.id == Bill.session_table_id)
         .where(SessionTable.session_id == session_id)
-        .group_by(MenuItem.id, MenuItem.name, MenuItem.item_type)
-        .order_by(MenuItem.name.asc())
+        .group_by(
+            MenuItem.id,
+            MenuItem.name,
+            MenuItem.item_type,
+            MenuItem.is_bundle,
+        )
     ).all()
+
+    component_rows = db.execute(
+        select(
+            MenuItemComponent.component_menu_item_id.label("menu_item_id"),
+            MenuItem.name.label("menu_item_name"),
+            MenuItem.item_type.label("item_type"),
+            MenuItem.is_bundle.label("is_bundle"),
+            MenuItemComponent.parent_menu_item_id.label("set_menu_item_id"),
+            MenuItemComponent.quantity.label("component_quantity_per_set"),
+            func.coalesce(func.sum(OrderItem.quantity), 0).label(
+                "set_quantity_ordered"
+            ),
+            func.coalesce(
+                func.sum(OrderItem.quantity * MenuItemComponent.quantity),
+                0,
+            ).label("quantity_from_set"),
+        )
+        .join(
+            MenuItem,
+            MenuItem.id == MenuItemComponent.component_menu_item_id,
+        )
+        .join(
+            OrderItem,
+            OrderItem.menu_item_id == MenuItemComponent.parent_menu_item_id,
+        )
+        .join(Order, Order.id == OrderItem.order_id)
+        .join(Bill, Bill.id == Order.bill_id)
+        .join(SessionTable, SessionTable.id == Bill.session_table_id)
+        .where(SessionTable.session_id == session_id)
+        .group_by(
+            MenuItemComponent.component_menu_item_id,
+            MenuItem.name,
+            MenuItem.item_type,
+            MenuItem.is_bundle,
+            MenuItemComponent.parent_menu_item_id,
+            MenuItemComponent.quantity,
+        )
+    ).all()
+
+    set_ids = {row.set_menu_item_id for row in component_rows}
+    set_names = {}
+
+    if set_ids:
+        set_names = {
+            item.id: item.name
+            for item in db.execute(
+                select(MenuItem).where(MenuItem.id.in_(set_ids))
+            )
+            .scalars()
+            .all()
+        }
+
+    item_map: dict[int, dict] = {}
+
+    for row in direct_rows:
+        item_map[row.menu_item_id] = {
+            "menu_item_id": row.menu_item_id,
+            "menu_item_name": row.menu_item_name,
+            "item_type": row.item_type,
+            "is_bundle": row.is_bundle,
+            "direct_ordered": int(row.direct_ordered),
+            "from_sets": 0,
+            "total_sales": row.total_sales,
+            "from_set_breakdown": [],
+        }
+
+    for row in component_rows:
+        entry = item_map.setdefault(
+            row.menu_item_id,
+            {
+                "menu_item_id": row.menu_item_id,
+                "menu_item_name": row.menu_item_name,
+                "item_type": row.item_type,
+                "is_bundle": row.is_bundle,
+                "direct_ordered": 0,
+                "from_sets": 0,
+                "total_sales": Decimal("0.00"),
+                "from_set_breakdown": [],
+            },
+        )
+
+        quantity_from_set = int(row.quantity_from_set)
+        entry["from_sets"] += quantity_from_set
+        entry["from_set_breakdown"].append(
+            SessionSummarySetSource(
+                set_menu_item_id=row.set_menu_item_id,
+                set_menu_item_name=set_names.get(
+                    row.set_menu_item_id,
+                    f"Set #{row.set_menu_item_id}",
+                ),
+                set_quantity_ordered=int(row.set_quantity_ordered),
+                component_quantity_per_set=int(
+                    row.component_quantity_per_set
+                ),
+                quantity_from_set=quantity_from_set,
+            )
+        )
+
+    set_component_map: dict[int, list[SessionSummarySetComponent]] = {}
+
+    for row in component_rows:
+        set_entry = item_map.get(row.set_menu_item_id)
+        set_total_ordered = (
+            set_entry["direct_ordered"]
+            if set_entry
+            else int(row.set_quantity_ordered)
+        )
+
+        set_component_map.setdefault(row.set_menu_item_id, []).append(
+            SessionSummarySetComponent(
+                menu_item_id=row.menu_item_id,
+                menu_item_name=row.menu_item_name,
+                item_type=row.item_type,
+                quantity_per_set=int(row.component_quantity_per_set),
+                total_quantity_from_set=(
+                    set_total_ordered
+                    * int(row.component_quantity_per_set)
+                ),
+            )
+        )
 
     maid_rows = db.execute(
         select(
@@ -178,6 +306,7 @@ def get_session_summary(
     ).all()
 
     maid_map: dict[int, list[SessionSummaryMaidCount]] = {}
+
     for row in maid_rows:
         maid_map.setdefault(row.menu_item_id, []).append(
             SessionSummaryMaidCount(
@@ -187,24 +316,42 @@ def get_session_summary(
             )
         )
 
-    items = [
-        SessionSummaryItem(
-            menu_item_id=row.menu_item_id,
-            menu_item_name=row.menu_item_name,
-            item_type=row.item_type,
-            total_ordered=row.total_ordered,
-            total_sales=row.total_sales,
-            maid_breakdown=maid_map.get(row.menu_item_id, []),
+    items = []
+
+    for entry in item_map.values():
+        direct_ordered = int(entry["direct_ordered"])
+        from_sets = int(entry["from_sets"])
+
+        items.append(
+            SessionSummaryItem(
+                menu_item_id=entry["menu_item_id"],
+                menu_item_name=entry["menu_item_name"],
+                item_type=entry["item_type"],
+                is_bundle=entry["is_bundle"],
+                direct_ordered=direct_ordered,
+                from_sets=from_sets,
+                total_ordered=direct_ordered + from_sets,
+                total_sales=entry["total_sales"],
+                maid_breakdown=maid_map.get(entry["menu_item_id"], []),
+                set_components=set_component_map.get(
+                    entry["menu_item_id"], []
+                ),
+                from_set_breakdown=entry["from_set_breakdown"],
+            )
         )
-        for row in item_rows
-    ]
+
+    items.sort(
+        key=lambda item: (
+            not item.is_bundle,
+            item.menu_item_name.lower(),
+        )
+    )
 
     return SessionSummaryResponse(
         session_id=session_obj.id,
         session_name=session_obj.name,
         items=items,
     )
-
 
 @router.post("/table/{table_code}/start-checkout")
 def start_checkout(

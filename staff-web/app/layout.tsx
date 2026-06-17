@@ -1,3 +1,4 @@
+import GlobalLanguageToggle from "@/components/i18n/GlobalLanguageToggle";
 import "./globals.css";
 import type { ReactNode } from "react";
 
@@ -8,7 +9,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><GlobalLanguageToggle />
+{children}</body>
     </html>
   );
 }

@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  type ChangeEvent,
-  useRef,
-  useState,
-} from "react";
-
+import { type ChangeEvent, useRef, useState } from "react";
 import { apiPostFormData } from "@/lib/api";
 
 type UploadResponse = {
@@ -18,18 +13,12 @@ type Props = {
   onChange: (value: string) => void;
 };
 
-export default function MenuImageField({
-  value,
-  onChange,
-}: Props) {
+export default function MenuImageField({ value, onChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] =
-    useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
-  async function upload(
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
+  async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
 
@@ -52,19 +41,14 @@ export default function MenuImageField({
       const form = new FormData();
       form.append("image", file);
 
-      const result =
-        await apiPostFormData<UploadResponse>(
-          "/admin/uploads/menu-image",
-          form,
-        );
+      const result = await apiPostFormData<UploadResponse>(
+        "/admin/uploads/menu-image",
+        form,
+      );
 
       onChange(result.image_url);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Image upload failed.",
-      );
+      setError(err instanceof Error ? err.message : "Image upload failed.");
     } finally {
       setUploading(false);
     }
@@ -84,20 +68,12 @@ export default function MenuImageField({
         <span>Image URL</span>
         <input
           value={value}
-          onChange={(event) =>
-            onChange(event.target.value)
-          }
+          onChange={(event) => onChange(event.target.value)}
           placeholder="https://..."
         />
       </label>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 9,
-          flexWrap: "wrap",
-        }}
-      >
+      <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
         <input
           ref={inputRef}
           type="file"
@@ -114,15 +90,13 @@ export default function MenuImageField({
             minHeight: 42,
             padding: "9px 14px",
             borderRadius: 10,
-            border: "1px solid #4f46e5",
+            border: 0,
             background: "#4f46e5",
             color: "#ffffff",
             fontWeight: 850,
           }}
         >
-          {uploading
-            ? "Uploading..."
-            : "Choose from device"}
+          {uploading ? "Uploading..." : "Choose from device"}
         </button>
 
         {value ? (
@@ -143,14 +117,9 @@ export default function MenuImageField({
         ) : null}
       </div>
 
-      {error ? (
-        <div style={{ color: "#b91c1c" }}>
-          {error}
-        </div>
-      ) : null}
+      {error ? <div style={{ color: "#b91c1c" }}>{error}</div> : null}
 
       {value ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={value}
           alt="Menu item preview"
@@ -163,12 +132,6 @@ export default function MenuImageField({
           }}
         />
       ) : null}
-
-      <small style={{ color: "#64748b" }}>
-        Local development stores files under backend/uploads.
-        Cloud deployment uses S3-compatible object storage through
-        environment variables.
-      </small>
     </section>
   );
 }

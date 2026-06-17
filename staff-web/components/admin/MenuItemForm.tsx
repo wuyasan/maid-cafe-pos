@@ -1,5 +1,7 @@
 "use client";
 
+import MenuImageField from "./MenuImageField";
+
 import { useEffect, useMemo, useState } from "react";
 import type {
   BundleComponentPayload,
@@ -252,10 +254,10 @@ export default function MenuItemForm({
         <input type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(e.target.value)} required />
       </label>
 
-      <label style={{ display: "grid", gap: 6 }}>
-        <span>Image URL</span>
-        <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} />
-      </label>
+      <MenuImageField
+          value={imageUrl}
+          onChange={setImageUrl}
+        />
 
       <label style={{ display: "grid", gap: 6 }}>
         <span>Category</span>
