@@ -5,6 +5,5 @@ psycopg[binary]
 pydantic
 alembic
 python-dotenv
-alembic
 python-multipart>=0.0.9
 boto3>=1.35.0
