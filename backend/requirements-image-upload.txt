@@ -1,3 +1,1 @@
 # Add these to your existing backend requirements.txt
-python-multipart>=0.0.9
-boto3>=1.35.0

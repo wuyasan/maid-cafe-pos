@@ -10,6 +10,7 @@ import { useSearchParams } from "next/navigation";
 import CartMaidPickerModal from "@/components/CartMaidPickerModal";
 import MenuTabs from "@/components/MenuTabs";
 import { apiGet, apiPost } from "@/lib/api";
+import { clearCartDraft, restoreCartDraft, saveCartDraft } from "@/lib/cartDraft";
 import type {
   BillDetail,
   CurrentSessionResponse,
@@ -107,6 +108,7 @@ export default function OrderPage({
   const [cart, setCart] = useState<
     CartLine[]
   >([]);
+  const [draftReady, setDraftReady] = useState(false);
   const [activeTab, setActiveTab] =
     useState<
       "regular" | "maid_service"
@@ -207,6 +209,20 @@ export default function OrderPage({
       );
       setCategories(categoryData);
       setBill(billData);
+      const restoredDraft = restoreCartDraft(
+        code,
+        orderSource,
+        currentSession.session?.id ?? null,
+        menuItems.filter(
+          (item) => item.is_active,
+        ),
+      );
+
+      if (restoredDraft.length > 0) {
+        setCart(restoredDraft);
+      }
+
+      setDraftReady(true);
 
       if (currentSession.session) {
         await loadSessionMaids(
@@ -231,6 +247,22 @@ export default function OrderPage({
       void loadPage(tableCode);
     }
   }, [tableCode]);
+  useEffect(() => {
+    if (!draftReady || !tableCode) return;
+
+    saveCartDraft(
+      tableCode,
+      orderSource,
+      session?.id ?? null,
+      cart,
+    );
+  }, [
+    cart,
+    draftReady,
+    orderSource,
+    session?.id,
+    tableCode,
+  ]);
 
   const closedStations = useMemo<
     Record<ProductionStation, boolean>
@@ -387,6 +419,7 @@ export default function OrderPage({
         payload,
       );
 
+      clearCartDraft(tableCode, orderSource);
       setCart([]);
       setMobileCartOpen(false);
       await loadBill(tableCode);
@@ -460,6 +493,7 @@ export default function OrderPage({
         } satisfies CustomerOrderPayload,
       );
 
+      clearCartDraft(tableCode, orderSource);
       setCart([]);
       setMobileCartOpen(false);
       await loadBill(tableCode);
