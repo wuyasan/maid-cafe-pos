@@ -13,6 +13,8 @@ import {
   STAFF_VIEW_STORAGE_KEY,
 } from "@/lib/staffViews";
 
+import GlobalPickupNotifier from "./GlobalPickupNotifier";
+
 type Props = {
   children: ReactNode;
 };
@@ -21,7 +23,6 @@ export default function StaffShell({
   children,
 }: Props) {
   const pathname = usePathname();
-
   const currentViewId =
     getStaffViewFromPath(pathname);
   const currentView =
@@ -30,6 +31,15 @@ export default function StaffShell({
   const isSelectorPage =
     pathname === "/staff" ||
     pathname === "/staff/";
+
+  /*
+   * The floating pickup notifier is shown only in the maid
+   * ordering view. The dedicated runner page has its own
+   * full synchronized pickup list, so showing both would be
+   * duplicate UI.
+   */
+  const shouldShowPickupNotifier =
+    currentViewId === "order";
 
   useEffect(() => {
     if (!currentViewId) {
@@ -54,7 +64,8 @@ export default function StaffShell({
               "1px solid #e5e7eb",
             background:
               "rgba(255,255,255,.96)",
-            backdropFilter: "blur(12px)",
+            backdropFilter:
+              "blur(12px)",
           }}
         >
           <div
@@ -99,7 +110,8 @@ export default function StaffShell({
               <Link
                 href="/"
                 style={{
-                  padding: "10px 15px",
+                  padding:
+                    "10px 15px",
                   borderRadius: 11,
                   border:
                     "1px solid #d1d5db",
@@ -115,7 +127,8 @@ export default function StaffShell({
               <Link
                 href="/staff"
                 style={{
-                  padding: "10px 15px",
+                  padding:
+                    "10px 15px",
                   borderRadius: 11,
                   background: "#4f46e5",
                   color: "#ffffff",
@@ -131,6 +144,10 @@ export default function StaffShell({
       ) : null}
 
       {children}
+
+      {shouldShowPickupNotifier ? (
+        <GlobalPickupNotifier />
+      ) : null}
     </>
   );
 }

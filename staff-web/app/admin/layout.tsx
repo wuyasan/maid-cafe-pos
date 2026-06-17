@@ -12,9 +12,14 @@ const navItems = [
   { href: "/admin/table-layout", label: "Table Layout" },
   { href: "/admin/categories", label: "Categories" },
   { href: "/admin/menu-items", label: "Menu Items" },
+  { href: "/staff/square-settings", label: "Square Settings" },
 ];
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
+export default function AdminLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return (
     <main className="admin-shell">
       <header className="admin-topbar">
@@ -30,28 +35,58 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           >
             MAID CAFE POS
           </p>
+
           <h2 className="admin-title">Admin</h2>
         </div>
 
-        <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
-          <Link href="/" className="admin-switch-view">
+        <div
+          style={{
+            display: "flex",
+            gap: 9,
+            flexWrap: "wrap",
+          }}
+        >
+          <Link
+            href="/staff/square-settings?next=/admin"
+            className="admin-switch-view"
+          >
+            Square Settings
+          </Link>
+
+          <Link
+            href="/"
+            className="admin-switch-view"
+          >
             Main Dashboard
           </Link>
-          <Link href="/staff" className="admin-switch-view">
+
+          <Link
+            href="/staff"
+            className="admin-switch-view"
+          >
             Switch View
           </Link>
         </div>
       </header>
 
-      <nav className="admin-nav" aria-label="Admin navigation">
+      <nav
+        className="admin-nav"
+        aria-label="Admin navigation"
+      >
         {navItems.map((item) => (
-          <Link key={item.href} href={item.href} className="admin-nav-link">
+          <Link
+            key={item.href}
+            href={item.href}
+            className="admin-nav-link"
+          >
             {item.label}
           </Link>
         ))}
       </nav>
 
-      <section className="admin-content">{children}</section>
+      <section className="admin-content">
+        {children}
+      </section>
     </main>
   );
 }

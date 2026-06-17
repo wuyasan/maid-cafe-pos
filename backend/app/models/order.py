@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -43,7 +44,6 @@ class OrderItem(Base, TimestampMixin):
     total_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Kept for backward compatibility. New kitchen/bar workflow uses ProductionTask.
     production_status: Mapped[ProductionStatus] = mapped_column(
         Enum(
             ProductionStatus,
@@ -109,6 +109,14 @@ class ProductionTask(Base, TimestampMixin):
         index=True,
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Shared pickup state. Once one maid marks the order picked up,
+    # every other device sees it disappear on the next poll.
+    picked_up_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        index=True,
+    )
 
     order_item: Mapped["OrderItem"] = relationship(
         "OrderItem",

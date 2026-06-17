@@ -1,9 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  useEffect,
+  useState,
+} from "react";
 
-import { apiGet, apiPostNoBody } from "@/lib/api";
+import {
+  apiGet,
+  apiPostNoBody,
+} from "@/lib/api";
 import {
   buildSquarePosUrl,
   SQUARE_PENDING_CHECKOUT_KEY,
@@ -19,16 +26,44 @@ function money(value?: string | null) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function isMissingSquareConfigError(
+  error: unknown,
+) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes(
+      "Square Application ID is not configured",
+    ) ||
+    error.message.includes(
+      "Square callback URL is not configured",
+    )
+  );
+}
+
 export default function StaffSingleTablePage({
   params,
 }: Props) {
-  const [tableCode, setTableCode] = useState("");
-  const [bill, setBill] = useState<BillDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] =
-    useState<"square" | "paid" | null>(null);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const router = useRouter();
+
+  const [tableCode, setTableCode] =
+    useState("");
+  const [bill, setBill] =
+    useState<BillDetail | null>(null);
+  const [loading, setLoading] =
+    useState(true);
+  const [
+    actionLoading,
+    setActionLoading,
+  ] = useState<
+    "square" | "paid" | null
+  >(null);
+  const [error, setError] =
+    useState("");
+  const [message, setMessage] =
+    useState("");
 
   useEffect(() => {
     params.then((value) => {
@@ -36,16 +71,72 @@ export default function StaffSingleTablePage({
     });
   }, [params]);
 
+  /*
+   * When Square opens, Safari/WKWebView goes into the
+   * background. If the user cancels or returns without a
+   * callback, reset the button from "Opening Square...".
+   */
+  useEffect(() => {
+    function resetSquareButton() {
+      setActionLoading((current) =>
+        current === "square"
+          ? null
+          : current,
+      );
+    }
+
+    function handleVisibilityChange() {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        window.setTimeout(
+          resetSquareButton,
+          150,
+        );
+      }
+    }
+
+    window.addEventListener(
+      "focus",
+      resetSquareButton,
+    );
+    window.addEventListener(
+      "pageshow",
+      resetSquareButton,
+    );
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "focus",
+        resetSquareButton,
+      );
+      window.removeEventListener(
+        "pageshow",
+        resetSquareButton,
+      );
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange,
+      );
+    };
+  }, []);
+
   async function loadBill(code: string) {
     setLoading(true);
     setError("");
 
     try {
-      const result = await apiGet<BillDetail>(
-        `/customer-orders/customer/table/${encodeURIComponent(
-          code,
-        )}/bill`,
-      );
+      const result =
+        await apiGet<BillDetail>(
+          `/customer-orders/customer/table/${encodeURIComponent(
+            code,
+          )}/bill`,
+        );
 
       setBill(result);
     } catch (err) {
@@ -75,16 +166,12 @@ export default function StaffSingleTablePage({
       setError("");
       setMessage("");
 
-      /*
-       * Build and validate the Square URL before changing the bill
-       * to paying. Missing environment variables therefore cannot
-       * leave the table stuck in checkout mode.
-       */
-      const squareUrl = buildSquarePosUrl({
-        total: bill.total,
-        tableCode,
-        billId: bill.id,
-      });
+      const squareUrl =
+        buildSquarePosUrl({
+          total: bill.total,
+          tableCode,
+          billId: bill.id,
+        });
 
       await apiPostNoBody(
         `/staff/table/${encodeURIComponent(
@@ -92,11 +179,13 @@ export default function StaffSingleTablePage({
         )}/start-checkout`,
       );
 
-      const pending: PendingSquareCheckout = {
+      const pending:
+        PendingSquareCheckout = {
         tableCode,
         billId: bill.id,
         total: bill.total,
-        createdAt: new Date().toISOString(),
+        createdAt:
+          new Date().toISOString(),
       };
 
       window.localStorage.setItem(
@@ -105,12 +194,35 @@ export default function StaffSingleTablePage({
       );
 
       /*
-       * On iPad Safari this opens Square Point of Sale.
-       * In the native WKWebView wrapper, StaffWebView intercepts
-       * square-commerce-v1 and opens the Square app.
+       * Fallback reset in case the browser blocks the
+       * deep link and never backgrounds.
        */
+      window.setTimeout(() => {
+        setActionLoading((current) =>
+          current === "square"
+            ? null
+            : current,
+        );
+      }, 4000);
+
       window.location.href = squareUrl;
     } catch (err) {
+      if (
+        isMissingSquareConfigError(err)
+      ) {
+        const returnPath =
+          `/staff/table/${encodeURIComponent(
+            tableCode,
+          )}`;
+
+        router.push(
+          `/staff/square-settings?next=${encodeURIComponent(
+            returnPath,
+          )}`,
+        );
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message
@@ -125,9 +237,10 @@ export default function StaffSingleTablePage({
       return;
     }
 
-    const confirmed = window.confirm(
-      "Only continue after Square shows a successful payment. Mark this bill paid?",
-    );
+    const confirmed =
+      window.confirm(
+        "Only continue after Square shows a successful payment. Mark this bill paid?",
+      );
 
     if (!confirmed) {
       return;
@@ -176,7 +289,8 @@ export default function StaffSingleTablePage({
       <div
         style={{
           display: "flex",
-          justifyContent: "space-between",
+          justifyContent:
+            "space-between",
           gap: 12,
           alignItems: "center",
           flexWrap: "wrap",
@@ -187,6 +301,7 @@ export default function StaffSingleTablePage({
           <h1 style={{ margin: 0 }}>
             Table {tableCode}
           </h1>
+
           <p
             style={{
               margin: "7px 0 0",
@@ -197,20 +312,47 @@ export default function StaffSingleTablePage({
           </p>
         </div>
 
-        <Link
-          href="/staff/floor"
+        <div
           style={{
-            padding: "10px 14px",
-            borderRadius: 11,
-            border: "1px solid #d1d5db",
-            background: "#ffffff",
-            color: "#111827",
-            textDecoration: "none",
-            fontWeight: 800,
+            display: "flex",
+            gap: 9,
+            flexWrap: "wrap",
           }}
         >
-          Back to Floor
-        </Link>
+          <Link
+            href={`/staff/square-settings?next=${encodeURIComponent(
+              `/staff/table/${tableCode}`,
+            )}`}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 11,
+              border:
+                "1px solid #d1d5db",
+              background: "#ffffff",
+              color: "#111827",
+              textDecoration: "none",
+              fontWeight: 800,
+            }}
+          >
+            Square Settings
+          </Link>
+
+          <Link
+            href="/staff/floor"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 11,
+              border:
+                "1px solid #d1d5db",
+              background: "#ffffff",
+              color: "#111827",
+              textDecoration: "none",
+              fontWeight: 800,
+            }}
+          >
+            Back to Floor
+          </Link>
+        </div>
       </div>
 
       {error ? (
@@ -241,14 +383,16 @@ export default function StaffSingleTablePage({
         </div>
       ) : null}
 
-      {loading ? <p>Loading bill...</p> : null}
+      {loading ? (
+        <p>Loading bill...</p>
+      ) : null}
 
       {!loading && bill ? (
         <div
           style={{
             display: "grid",
             gridTemplateColumns:
-              "minmax(0, 1fr) minmax(280px, 340px)",
+              "minmax(0,1fr) minmax(280px,340px)",
             gap: 20,
             alignItems: "start",
           }}
@@ -256,7 +400,8 @@ export default function StaffSingleTablePage({
           <section
             style={{
               background: "#ffffff",
-              border: "1px solid #e5e7eb",
+              border:
+                "1px solid #e5e7eb",
               borderRadius: 18,
               padding: 18,
             }}
@@ -266,7 +411,11 @@ export default function StaffSingleTablePage({
             </h2>
 
             {bill.items.length === 0 ? (
-              <p style={{ color: "#64748b" }}>
+              <p
+                style={{
+                  color: "#64748b",
+                }}
+              >
                 No items yet.
               </p>
             ) : (
@@ -278,19 +427,24 @@ export default function StaffSingleTablePage({
               >
                 {bill.items.map((item) => (
                   <article
-                    key={item.order_item_id}
+                    key={
+                      item.order_item_id
+                    }
                     style={{
                       padding: 13,
                       borderRadius: 12,
                       background: "#f8fafc",
                       display: "flex",
-                      justifyContent: "space-between",
+                      justifyContent:
+                        "space-between",
                       gap: 12,
                     }}
                   >
                     <div>
                       <strong>
-                        {item.menu_item_name}
+                        {
+                          item.menu_item_name
+                        }
                       </strong>
 
                       <div
@@ -300,32 +454,18 @@ export default function StaffSingleTablePage({
                           fontSize: 13,
                         }}
                       >
-                        Qty {item.quantity} · Unit{" "}
-                        {money(item.unit_price)}
+                        Qty {item.quantity}
+                        {" · "}Unit{" "}
+                        {money(
+                          item.unit_price,
+                        )}
                       </div>
-
-                      {item.selected_maids?.length ? (
-                        <div
-                          style={{
-                            marginTop: 4,
-                            color: "#7c3aed",
-                            fontSize: 13,
-                            fontWeight: 750,
-                          }}
-                        >
-                          Maid:{" "}
-                          {item.selected_maids
-                            .map(
-                              (maid) =>
-                                maid.maid_name,
-                            )
-                            .join(", ")}
-                        </div>
-                      ) : null}
                     </div>
 
                     <strong>
-                      {money(item.total_price)}
+                      {money(
+                        item.total_price,
+                      )}
                     </strong>
                   </article>
                 ))}
@@ -336,7 +476,8 @@ export default function StaffSingleTablePage({
           <aside
             style={{
               background: "#ffffff",
-              border: "1px solid #e5e7eb",
+              border:
+                "1px solid #e5e7eb",
               borderRadius: 18,
               padding: 18,
               display: "grid",
@@ -356,7 +497,8 @@ export default function StaffSingleTablePage({
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
+                  justifyContent:
+                    "space-between",
                 }}
               >
                 <span>Subtotal</span>
@@ -368,7 +510,8 @@ export default function StaffSingleTablePage({
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
+                  justifyContent:
+                    "space-between",
                 }}
               >
                 <span>Tax</span>
@@ -380,19 +523,23 @@ export default function StaffSingleTablePage({
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
+                  justifyContent:
+                    "space-between",
                 }}
               >
                 <span>Service</span>
                 <strong>
-                  {money(bill.service_charge)}
+                  {money(
+                    bill.service_charge,
+                  )}
                 </strong>
               </div>
 
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
+                  justifyContent:
+                    "space-between",
                   paddingTop: 10,
                   borderTop:
                     "1px solid #e5e7eb",
@@ -413,7 +560,9 @@ export default function StaffSingleTablePage({
                 bill.items.length === 0 ||
                 bill.status === "paid"
               }
-              onClick={() => void payInSquare()}
+              onClick={() =>
+                void payInSquare()
+              }
               style={{
                 minHeight: 54,
                 border: 0,
@@ -459,21 +608,6 @@ export default function StaffSingleTablePage({
                 ? "Saving..."
                 : "Square Paid · Mark Bill Paid"}
             </button>
-
-            <div
-              style={{
-                padding: 11,
-                borderRadius: 11,
-                background: "#f8fafc",
-                color: "#475569",
-                fontSize: 12,
-                lineHeight: 1.55,
-              }}
-            >
-              The Square Reader must already be paired
-              inside the Square Point of Sale app on this
-              same iPad.
-            </div>
           </aside>
         </div>
       ) : null}

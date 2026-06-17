@@ -1,6 +1,13 @@
-export const STAFF_VIEW_STORAGE_KEY = "maid-cafe-pos:last-staff-view";
+export const STAFF_VIEW_STORAGE_KEY =
+  "maid-cafe-pos:last-staff-view";
 
-export type StaffViewId = "floor" | "order" | "kitchen" | "bar" | "admin";
+export type StaffViewId =
+  | "floor"
+  | "order"
+  | "kitchen"
+  | "bar"
+  | "runner"
+  | "admin";
 
 export type StaffViewDefinition = {
   id: StaffViewId;
@@ -16,7 +23,8 @@ export const STAFF_VIEWS: StaffViewDefinition[] = [
     id: "floor",
     title: "Front / Floor",
     subtitle: "前台 / 巡台",
-    description: "查看桌位、人数、拼桌属性、未结款和结账入口。",
+    description:
+      "查看桌位、人数、拼桌属性、未结款和结账入口。",
     href: "/staff/floor",
     emoji: "🪑",
   },
@@ -24,7 +32,8 @@ export const STAFF_VIEWS: StaffViewDefinition[] = [
     id: "order",
     title: "Maid Ordering",
     subtitle: "女仆代客点单",
-    description: "选择桌位并帮助顾客添加菜单商品。",
+    description:
+      "选择桌位并帮助顾客添加菜单商品。",
     href: "/staff/order",
     emoji: "📝",
   },
@@ -32,7 +41,8 @@ export const STAFF_VIEWS: StaffViewDefinition[] = [
     id: "kitchen",
     title: "Kitchen",
     subtitle: "后厨",
-    description: "查看归属于 Kitchen 的待制作订单。",
+    description:
+      "查看 Kitchen 待制作订单，并接收新单声音。",
     href: "/staff/kitchen",
     emoji: "🍳",
   },
@@ -40,29 +50,66 @@ export const STAFF_VIEWS: StaffViewDefinition[] = [
     id: "bar",
     title: "Bar",
     subtitle: "水吧",
-    description: "查看归属于 Bar 的待制作饮品。",
+    description:
+      "查看 Bar 待制作饮品，并接收新单声音。",
     href: "/staff/bar",
     emoji: "🥤",
+  },
+  {
+    id: "runner",
+    title: "Runner / Pickup",
+    subtitle: "女仆 / 传菜取餐",
+    description:
+      "后厨或水吧完成后接收取餐通知和声音。",
+    href: "/staff/runner",
+    emoji: "🔔",
   },
   {
     id: "admin",
     title: "Admin",
     subtitle: "后台管理",
-    description: "管理场次、桌位、菜单、女仆和系统设置。",
+    description:
+      "管理场次、桌位、菜单、女仆和系统设置。",
     href: "/admin",
     emoji: "⚙️",
   },
 ];
 
-export function findStaffView(id: string | null | undefined) {
-  return STAFF_VIEWS.find((view) => view.id === id) ?? null;
+export function findStaffView(
+  id: string | null | undefined,
+) {
+  return (
+    STAFF_VIEWS.find((view) => view.id === id) ??
+    null
+  );
 }
 
-export function getStaffViewFromPath(pathname: string): StaffViewId | null {
-  if (pathname === "/staff" || pathname === "/staff/") return null;
-  if (pathname.startsWith("/staff/order")) return "order";
-  if (pathname.startsWith("/staff/kitchen")) return "kitchen";
-  if (pathname.startsWith("/staff/bar")) return "bar";
+export function getStaffViewFromPath(
+  pathname: string,
+): StaffViewId | null {
+  if (
+    pathname === "/staff" ||
+    pathname === "/staff/"
+  ) {
+    return null;
+  }
+
+  if (pathname.startsWith("/staff/order")) {
+    return "order";
+  }
+
+  if (pathname.startsWith("/staff/kitchen")) {
+    return "kitchen";
+  }
+
+  if (pathname.startsWith("/staff/bar")) {
+    return "bar";
+  }
+
+  if (pathname.startsWith("/staff/runner")) {
+    return "runner";
+  }
+
   if (
     pathname.startsWith("/staff/floor") ||
     pathname.startsWith("/staff/tables") ||
@@ -70,5 +117,6 @@ export function getStaffViewFromPath(pathname: string): StaffViewId | null {
   ) {
     return "floor";
   }
+
   return null;
 }
