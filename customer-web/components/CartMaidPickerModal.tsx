@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import styles from "@/app/order/[tableCode]/order.module.css";
 import type {
@@ -23,38 +23,33 @@ export default function CartMaidPickerModal({
   onCancel,
   onConfirm,
 }: Props) {
-  const [selectedIds, setSelectedIds] =
-    useState<number[]>(
-      initialSelectedIds,
-    );
-  const [error, setError] =
-    useState("");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setSelectedIds([...initialSelectedIds]);
+    setError("");
+  }, [item.id, initialSelectedIds]);
 
   const allSelected = useMemo(
-    () =>
-      maids.length > 0 &&
-      selectedIds.length === maids.length,
+    () => maids.length > 0 && selectedIds.length === maids.length,
     [maids.length, selectedIds.length],
   );
 
   function toggle(id: number) {
     setSelectedIds((current) =>
       current.includes(id)
-        ? current.filter(
-            (value) => value !== id,
-          )
+        ? current.filter((value) => value !== id)
         : [...current, id],
     );
+    setError("");
   }
 
   function submit() {
     if (selectedIds.length === 0) {
-      setError(
-        "Please select at least one maid.",
-      );
+      setError("Please select at least one maid.");
       return;
     }
-
     onConfirm(selectedIds);
   }
 
@@ -63,21 +58,10 @@ export default function CartMaidPickerModal({
       <section className={styles.maidModal}>
         <div className={styles.modalHeader}>
           <div>
-            <div
-              className={
-                styles.modalEyebrow
-              }
-            >
-              Maid selection
-            </div>
+            <div className={styles.modalEyebrow}>Maid selection</div>
             <h2>{item.name}</h2>
           </div>
-
-          <button
-            type="button"
-            onClick={onCancel}
-            className={styles.closeButton}
-          >
+          <button type="button" onClick={onCancel} className={styles.closeButton}>
             ×
           </button>
         </div>
@@ -86,98 +70,53 @@ export default function CartMaidPickerModal({
           type="button"
           onClick={() =>
             setSelectedIds(
-              allSelected
-                ? []
-                : maids.map(
-                    (maid) =>
-                      maid.maid_id,
-                  ),
+              allSelected ? [] : maids.map((maid) => maid.maid_id),
             )
           }
-          className={
-            styles.selectAllButton
-          }
+          className={styles.selectAllButton}
         >
-          {allSelected
-            ? "Clear all"
-            : "Select all maids"}
+          {allSelected ? "Clear all" : "Select all maids"}
         </button>
 
         <div className={styles.maidGrid}>
           {maids.map((maid) => {
-            const selected =
-              selectedIds.includes(
-                maid.maid_id,
-              );
-
+            const selected = selectedIds.includes(maid.maid_id);
             return (
               <button
                 key={maid.id}
                 type="button"
-                onClick={() =>
-                  toggle(maid.maid_id)
-                }
-                className={`${
-                  styles.maidChoice
-                } ${
-                  selected
-                    ? styles.selected
-                    : ""
+                onClick={() => toggle(maid.maid_id)}
+                className={`${styles.maidChoice} ${
+                  selected ? styles.selected : ""
                 }`}
               >
                 {maid.maid_photo_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={
-                      maid.maid_photo_url
-                    }
-                    alt={maid.maid_name}
-                  />
+                  <img src={maid.maid_photo_url} alt={maid.maid_name} />
                 ) : (
-                  <div
-                    className={
-                      styles.maidAvatar
-                    }
-                  >
-                    {maid.maid_name
-                      .slice(0, 1)
-                      .toUpperCase()}
+                  <div className={styles.maidAvatar}>
+                    {maid.maid_name.slice(0, 1).toUpperCase()}
                   </div>
                 )}
-
-                <strong>
-                  {maid.maid_name}
-                </strong>
+                <strong>{maid.maid_name}</strong>
               </button>
             );
           })}
         </div>
 
-        {error ? (
-          <div
-            className={styles.modalError}
-          >
-            {error}
-          </div>
-        ) : null}
+        {error ? <div className={styles.modalError}>{error}</div> : null}
 
         <div className={styles.modalActions}>
           <button
             type="button"
             onClick={onCancel}
-            className={
-              styles.secondaryButton
-            }
+            className={styles.secondaryButton}
           >
             Cancel
           </button>
-
           <button
             type="button"
             onClick={submit}
-            className={
-              styles.primaryButton
-            }
+            className={styles.primaryButton}
           >
             Confirm Maid
           </button>

@@ -17,19 +17,19 @@ from app.services.pricing_service import calculate_order_item_price
 
 
 def _get_session_table_for_bill(db: Session, bill: Bill) -> SessionTable:
-    session_table = db.execute(
+    row = db.execute(
         select(SessionTable).where(SessionTable.id == bill.session_table_id)
     ).scalars().first()
-    if not session_table:
+    if not row:
         raise ValueError("Session table not found for bill.")
-    return session_table
+    return row
 
 
 def _get_session(db: Session, session_id: int) -> SessionModel:
-    session = db.get(SessionModel, session_id)
-    if not session:
+    row = db.get(SessionModel, session_id)
+    if not row:
         raise ValueError("Session not found.")
-    return session
+    return row
 
 
 def _get_total_available_maid_count(db: Session, session_id: int) -> int:
@@ -49,18 +49,16 @@ def _validate_selected_maids_for_session(
     if not selected_maid_ids:
         raise ValueError("Maid service item requires maid selection.")
 
-    valid_maid_ids = set(
+    valid = set(
         db.execute(
             select(SessionMaid.maid_id).where(
                 SessionMaid.session_id == session_id,
                 SessionMaid.is_available.is_(True),
                 SessionMaid.maid_id.in_(selected_maid_ids),
             )
-        )
-        .scalars()
-        .all()
+        ).scalars().all()
     )
-    if len(valid_maid_ids) != len(set(selected_maid_ids)):
+    if len(valid) != len(set(selected_maid_ids)):
         raise ValueError(
             "One or more selected maids are not available in this session."
         )
@@ -73,7 +71,6 @@ def _station_is_closed(
 ) -> bool:
     if station == ProductionStation.none:
         return False
-
     cutoff = (
         session.kitchen_last_order_time
         if station == ProductionStation.kitchen
@@ -81,7 +78,6 @@ def _station_is_closed(
     )
     if cutoff is None:
         return False
-
     if now.date() > session.service_date:
         return True
     if now.date() < session.service_date:
@@ -96,7 +92,9 @@ def _validate_station(
 ) -> None:
     if not _station_is_closed(session, station, datetime.now()):
         return
-    station_name = "Kitchen" if station == ProductionStation.kitchen else "Bar"
+    station_name = (
+        "Kitchen" if station == ProductionStation.kitchen else "Bar"
+    )
     raise ValueError(
         f'{station_name} ordering is closed. "{item_name}" can no longer be ordered.'
     )
@@ -109,8 +107,8 @@ def _validate_item_and_components_orderable(
     if menu_item.is_bundle:
         if not menu_item.bundle_components:
             raise ValueError(f'Bundle "{menu_item.name}" has no components.')
-        for component_link in menu_item.bundle_components:
-            component = component_link.component_menu_item
+        for link in menu_item.bundle_components:
+            component = link.component_menu_item
             if not component.is_active:
                 raise ValueError(
                     f'Bundle component "{component.name}" is inactive.'
@@ -139,8 +137,8 @@ def _create_production_tasks(
     notes: str | None,
 ) -> None:
     if menu_item.is_bundle:
-        for component_link in menu_item.bundle_components:
-            component = component_link.component_menu_item
+        for link in menu_item.bundle_components:
+            component = link.component_menu_item
             station = (
                 component.category.production_station
                 if component.category is not None
@@ -154,7 +152,7 @@ def _create_production_tasks(
                     source_menu_item_id=component.id,
                     station=station,
                     display_name=component.name,
-                    quantity=ordered_quantity * component_link.quantity,
+                    quantity=ordered_quantity * link.quantity,
                     notes=notes,
                 )
             )
@@ -179,6 +177,44 @@ def _create_production_tasks(
     )
 
 
+def _bundle_maid_surcharge_per_unit(
+    menu_item: MenuItem,
+    selected_maid_count: int,
+    total_available_maid_count: int,
+) -> Decimal:
+    surcharge = Decimal("0.00")
+
+    for link in menu_item.bundle_components:
+        component = link.component_menu_item
+        if component.item_type != MenuItemType.maid_service:
+            continue
+
+        pricing = component.maid_service_pricing
+        if pricing is None:
+            raise ValueError(
+                f'Maid service component "{component.name}" is missing pricing config.'
+            )
+
+        if (
+            pricing.all_maids_price is not None
+            and total_available_maid_count > 0
+            and selected_maid_count == total_available_maid_count
+        ):
+            per_component = max(
+                Decimal(pricing.all_maids_price) - Decimal(component.price),
+                Decimal("0.00"),
+            )
+        else:
+            per_component = (
+                Decimal(max(selected_maid_count - 1, 0))
+                * Decimal(pricing.additional_maid_price or 0)
+            )
+
+        surcharge += per_component * link.quantity
+
+    return surcharge
+
+
 def create_order_for_bill(
     db: Session,
     bill: Bill,
@@ -190,7 +226,9 @@ def create_order_for_bill(
     session_table = _get_session_table_for_bill(db, bill)
     session_id = session_table.session_id
     session = _get_session(db, session_id)
-    total_available_maid_count = _get_total_available_maid_count(db, session_id)
+    total_available_maid_count = _get_total_available_maid_count(
+        db, session_id
+    )
 
     order = Order(bill_id=bill.id, source=payload.source)
     db.add(order)
@@ -206,6 +244,9 @@ def create_order_for_bill(
                     selectinload(MenuItem.bundle_components)
                     .joinedload(MenuItemComponent.component_menu_item)
                     .joinedload(MenuItem.category),
+                    selectinload(MenuItem.bundle_components)
+                    .joinedload(MenuItemComponent.component_menu_item)
+                    .joinedload(MenuItem.maid_service_pricing),
                 )
                 .where(MenuItem.id == line.menu_item_id)
             )
@@ -213,18 +254,24 @@ def create_order_for_bill(
             .scalars()
             .first()
         )
+
         if not menu_item:
             raise ValueError(f"Menu item {line.menu_item_id} not found.")
         if not menu_item.is_active:
             raise ValueError(f'Menu item "{menu_item.name}" is inactive.')
         if line.quantity < 1:
             raise ValueError("Quantity must be at least 1.")
+
         _validate_item_and_components_orderable(session, menu_item)
 
         selected_maid_ids = line.selected_maid_ids or []
-        bundle_has_maid_service = menu_item.is_bundle and any(
-            link.component_menu_item.item_type == MenuItemType.maid_service
-            for link in menu_item.bundle_components
+        bundle_has_maid_service = (
+            menu_item.is_bundle
+            and any(
+                link.component_menu_item.item_type
+                == MenuItemType.maid_service
+                for link in menu_item.bundle_components
+            )
         )
         requires_maid_selection = (
             menu_item.item_type == MenuItemType.maid_service
@@ -233,9 +280,9 @@ def create_order_for_bill(
 
         if requires_maid_selection:
             _validate_selected_maids_for_session(
-                db=db,
-                session_id=session_id,
-                selected_maid_ids=selected_maid_ids,
+                db,
+                session_id,
+                selected_maid_ids,
             )
 
         if menu_item.item_type == MenuItemType.maid_service:
@@ -245,9 +292,17 @@ def create_order_for_bill(
                 selected_maid_count=len(selected_maid_ids),
                 total_available_maid_count=total_available_maid_count,
             )
+        elif bundle_has_maid_service:
+            unit_price = (
+                Decimal(menu_item.price)
+                + _bundle_maid_surcharge_per_unit(
+                    menu_item,
+                    len(selected_maid_ids),
+                    total_available_maid_count,
+                )
+            )
+            total_price = unit_price * line.quantity
         else:
-            # Bundles keep their configured fixed sale price. Maid-service
-            # components require maid selection but do not add extra pricing.
             unit_price, total_price = calculate_order_item_price(
                 menu_item=menu_item,
                 quantity=line.quantity,
@@ -267,11 +322,11 @@ def create_order_for_bill(
         db.flush()
 
         _create_production_tasks(
-            db=db,
-            order_item=order_item,
-            menu_item=menu_item,
-            ordered_quantity=line.quantity,
-            notes=line.notes,
+            db,
+            order_item,
+            menu_item,
+            line.quantity,
+            line.notes,
         )
 
         if requires_maid_selection:
@@ -301,7 +356,11 @@ def create_order_for_bill(
     return (
         db.execute(
             select(Order)
-            .options(joinedload(Order.items).joinedload(OrderItem.selected_maids))
+            .options(
+                joinedload(Order.items).joinedload(
+                    OrderItem.selected_maids
+                )
+            )
             .where(Order.id == order.id)
         )
         .unique()

@@ -21,7 +21,10 @@ def to_admin_read(row: SessionMaid) -> SessionMaidAdminRead:
     )
 
 
-def load_session_maid_with_maid(db: Session, session_maid_id: int) -> SessionMaid | None:
+def load_session_maid_with_maid(
+    db: Session,
+    session_maid_id: int,
+) -> SessionMaid | None:
     return (
         db.execute(
             select(SessionMaid)
@@ -48,18 +51,60 @@ def list_session_maids(
         .scalars()
         .all()
     )
-
     return [to_admin_read(row) for row in rows]
 
 
-@router.post("/", response_model=SessionMaidAdminRead)
-def create_session_maid(payload: SessionMaidCreate, db: Session = Depends(get_db)):
-    session_obj = db.get(SessionModel, payload.session_id)
-    if not session_obj:
+@router.put(
+    "/session/{session_id}/maid/{maid_id}/availability",
+    response_model=SessionMaidAdminRead,
+)
+def set_session_maid_availability(
+    session_id: int,
+    maid_id: int,
+    is_available: bool = Query(...),
+    db: Session = Depends(get_db),
+):
+    if not db.get(SessionModel, session_id):
         raise HTTPException(status_code=404, detail="Session not found.")
+    if not db.get(Maid, maid_id):
+        raise HTTPException(status_code=404, detail="Maid not found.")
 
-    maid = db.get(Maid, payload.maid_id)
-    if not maid:
+    row = (
+        db.execute(
+            select(SessionMaid).where(
+                SessionMaid.session_id == session_id,
+                SessionMaid.maid_id == maid_id,
+            )
+        )
+        .scalars()
+        .first()
+    )
+
+    if row is None:
+        row = SessionMaid(
+            session_id=session_id,
+            maid_id=maid_id,
+            is_available=is_available,
+        )
+        db.add(row)
+        db.flush()
+    else:
+        row.is_available = is_available
+
+    db.commit()
+    return to_admin_read(
+        load_session_maid_with_maid(db, row.id)
+    )
+
+
+@router.post("/", response_model=SessionMaidAdminRead)
+def create_session_maid(
+    payload: SessionMaidCreate,
+    db: Session = Depends(get_db),
+):
+    if not db.get(SessionModel, payload.session_id):
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if not db.get(Maid, payload.maid_id):
         raise HTTPException(status_code=404, detail="Maid not found.")
 
     existing = (
@@ -72,20 +117,22 @@ def create_session_maid(payload: SessionMaidCreate, db: Session = Depends(get_db
         .scalars()
         .first()
     )
-
     if existing:
-        raise HTTPException(status_code=400, detail="This maid is already linked to the session.")
+        raise HTTPException(
+            status_code=400,
+            detail="This maid is already linked to the session.",
+        )
 
-    session_maid = SessionMaid(
+    row = SessionMaid(
         session_id=payload.session_id,
         maid_id=payload.maid_id,
         is_available=payload.is_available,
     )
-    db.add(session_maid)
+    db.add(row)
     db.commit()
-
-    row = load_session_maid_with_maid(db, session_maid.id)
-    return to_admin_read(row)
+    return to_admin_read(
+        load_session_maid_with_maid(db, row.id)
+    )
 
 
 @router.patch("/{session_maid_id}", response_model=SessionMaidAdminRead)
@@ -94,62 +141,47 @@ def update_session_maid(
     payload: SessionMaidCreate,
     db: Session = Depends(get_db),
 ):
-    session_maid = db.get(SessionMaid, session_maid_id)
-    if not session_maid:
+    row = db.get(SessionMaid, session_maid_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Session maid not found.")
 
-    session_obj = db.get(SessionModel, payload.session_id)
-    if not session_obj:
-        raise HTTPException(status_code=404, detail="Session not found.")
-
-    maid = db.get(Maid, payload.maid_id)
-    if not maid:
-        raise HTTPException(status_code=404, detail="Maid not found.")
-
-    existing = (
-        db.execute(
-            select(SessionMaid).where(
-                SessionMaid.session_id == payload.session_id,
-                SessionMaid.maid_id == payload.maid_id,
-                SessionMaid.id != session_maid_id,
-            )
-        )
-        .scalars()
-        .first()
+    row.session_id = payload.session_id
+    row.maid_id = payload.maid_id
+    row.is_available = payload.is_available
+    db.commit()
+    return to_admin_read(
+        load_session_maid_with_maid(db, row.id)
     )
 
-    if existing:
-        raise HTTPException(status_code=400, detail="This maid is already linked to the session.")
 
-    session_maid.session_id = payload.session_id
-    session_maid.maid_id = payload.maid_id
-    session_maid.is_available = payload.is_available
-
-    db.commit()
-
-    row = load_session_maid_with_maid(db, session_maid.id)
-    return to_admin_read(row)
-
-
-@router.patch("/{session_maid_id}/toggle", response_model=SessionMaidAdminRead)
-def toggle_session_maid(session_maid_id: int, db: Session = Depends(get_db)):
-    session_maid = db.get(SessionMaid, session_maid_id)
-    if not session_maid:
+@router.patch(
+    "/{session_maid_id}/toggle",
+    response_model=SessionMaidAdminRead,
+)
+def toggle_session_maid(
+    session_maid_id: int,
+    db: Session = Depends(get_db),
+):
+    row = db.get(SessionMaid, session_maid_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Session maid not found.")
 
-    session_maid.is_available = not session_maid.is_available
+    row.is_available = not row.is_available
     db.commit()
-
-    row = load_session_maid_with_maid(db, session_maid.id)
-    return to_admin_read(row)
+    return to_admin_read(
+        load_session_maid_with_maid(db, row.id)
+    )
 
 
 @router.delete("/{session_maid_id}")
-def delete_session_maid(session_maid_id: int, db: Session = Depends(get_db)):
-    session_maid = db.get(SessionMaid, session_maid_id)
-    if not session_maid:
+def delete_session_maid(
+    session_maid_id: int,
+    db: Session = Depends(get_db),
+):
+    row = db.get(SessionMaid, session_maid_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Session maid not found.")
 
-    db.delete(session_maid)
+    db.delete(row)
     db.commit()
     return {"success": True, "deleted_id": session_maid_id}
