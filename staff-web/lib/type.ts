@@ -36,6 +36,8 @@ export type SessionCreatePayload = {
   status?: SessionStatus;
 };
 
+export type SessionUpdatePayload = Partial<SessionCreatePayload>;
+
 export type MaidUpdatePayload = {
   name?: string;
   photo_url?: string | null;
