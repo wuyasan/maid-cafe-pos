@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  Suspense,
   useEffect,
   useState,
 } from "react";
@@ -18,7 +19,16 @@ type CallbackState =
   | "success"
   | "error";
 
-function parseSquareData(raw: string | null) {
+type SquareCallbackData = {
+  status?: string;
+  error_code?: string;
+  transaction_id?: string;
+  state?: string;
+};
+
+function parseSquareData(
+  raw: string | null,
+): SquareCallbackData | null {
   if (!raw) {
     return null;
   }
@@ -26,36 +36,37 @@ function parseSquareData(raw: string | null) {
   try {
     return JSON.parse(
       decodeURIComponent(raw),
-    ) as {
-      status?: string;
-      error_code?: string;
-      transaction_id?: string;
-      state?: string;
-    };
+    ) as SquareCallbackData;
   } catch {
     try {
-      return JSON.parse(raw);
+      return JSON.parse(
+        raw,
+      ) as SquareCallbackData;
     } catch {
       return null;
     }
   }
 }
 
-export default function SquareCallbackPage() {
+function SquareCallbackContent() {
   const searchParams = useSearchParams();
+
   const [state, setState] =
     useState<CallbackState>("processing");
+
   const [message, setMessage] = useState(
     "Confirming Square payment...",
   );
+
   const [tableCode, setTableCode] =
     useState("");
 
   useEffect(() => {
     async function finish() {
-      const saved = window.localStorage.getItem(
-        SQUARE_PENDING_CHECKOUT_KEY,
-      );
+      const saved =
+        window.localStorage.getItem(
+          SQUARE_PENDING_CHECKOUT_KEY,
+        );
 
       let pending:
         | PendingSquareCheckout
@@ -207,8 +218,7 @@ export default function SquareCallbackPage() {
             style={{
               padding: "11px 16px",
               borderRadius: 11,
-              border:
-                "1px solid #d1d5db",
+              border: "1px solid #d1d5db",
               color: "#111827",
               textDecoration: "none",
               fontWeight: 850,
@@ -221,3 +231,57 @@ export default function SquareCallbackPage() {
     </main>
   );
 }
+
+function SquareCallbackLoading() {
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        padding: 24,
+        background: "#f8fafc",
+        color: "#111827",
+      }}
+    >
+      <section
+        style={{
+          width: "min(560px, 100%)",
+          padding: 26,
+          borderRadius: 20,
+          background: "#ffffff",
+          border: "1px solid #e5e7eb",
+          boxShadow:
+            "0 14px 40px rgba(15,23,42,.09)",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontSize: 46 }}>
+          ⏳
+        </div>
+
+        <h1>Processing Payment</h1>
+
+        <p
+          style={{
+            color: "#64748b",
+            lineHeight: 1.6,
+          }}
+        >
+          Loading Square payment result...
+        </p>
+      </section>
+    </main>
+  );
+}
+
+export default function SquareCallbackPage() {
+  return (
+    <Suspense
+      fallback={<SquareCallbackLoading />}
+    >
+      <SquareCallbackContent />
+    </Suspense>
+  );
+}
+
