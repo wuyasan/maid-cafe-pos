@@ -88,18 +88,28 @@ export default function MaidPickerModal({
   async function handleSubmit() {
     setError("");
 
+    if (!item) {
+      setError("No maid service item is selected.");
+      return;
+    }
+
     if (selected.length === 0) {
       setError("Please select at least one maid.");
       return;
     }
 
     setSubmitting(true);
+
     try {
       await onSubmit(item, selected);
       setSelected([]);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add maid service");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to add maid service",
+      );
     } finally {
       setSubmitting(false);
     }
