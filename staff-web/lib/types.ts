@@ -39,7 +39,21 @@ export type SessionUpdatePayload = Partial<SessionCreatePayload>;
 export type SessionMaidItem = { id: number; session_id: number; maid_id: number; is_available: boolean };
 export type SessionMaidCreatePayload = { session_id: number; maid_id: number; is_available: boolean };
 
-export type TableItem = { id: number; code: string; seats: number; is_active: boolean; is_shareable: boolean; created_at: string };
+export type TableItem = {
+  id: number;
+  code: string;
+  seats: number;
+  is_active: boolean;
+  is_shareable: boolean;
+
+  layout_x: number;
+  layout_y: number;
+  layout_width: number;
+  layout_height: number;
+  layout_shape: "rectangle" | "round";
+
+  created_at: string;
+};
 export type TableCreatePayload = { code: string; seats: number; is_active?: boolean; is_shareable?: boolean };
 export type TableUpdatePayload = Partial<TableCreatePayload>;
 
