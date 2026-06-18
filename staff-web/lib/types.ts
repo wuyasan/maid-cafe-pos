@@ -34,6 +34,7 @@ export type SessionCreatePayload = {
   bar_last_order_time?: string | null;
   status?: SessionStatus;
 };
+export type SessionUpdatePayload = Partial<SessionCreatePayload>;
 
 export type SessionMaidItem = { id: number; session_id: number; maid_id: number; is_available: boolean };
 export type SessionMaidCreatePayload = { session_id: number; maid_id: number; is_available: boolean };
