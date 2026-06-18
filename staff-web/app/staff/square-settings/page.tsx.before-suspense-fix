@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   useRouter,
   useSearchParams,
@@ -28,7 +32,7 @@ function safeReturnPath(value: string | null) {
   return value;
 }
 
-function SquareSettingsPageContent() {
+export default function SquareSettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -316,12 +320,3 @@ function SquareSettingsPageContent() {
     </main>
   );
 }
-
-export default function SquareSettingsPage() {
-  return (
-    <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
-      <SquareSettingsPageContent />
-    </Suspense>
-  );
-}
-

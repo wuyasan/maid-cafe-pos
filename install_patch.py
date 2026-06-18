@@ -1,123 +1,206 @@
-from pathlib import Path
+from __future__ import annotations
+
 import re
+import shutil
 import sys
+from pathlib import Path
 
-project = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path.cwd()
-page_file = project / "customer-web/app/order/[tableCode]/page.tsx"
 
-if not page_file.exists():
-    raise SystemExit(f"Missing: {page_file}")
-
-text = page_file.read_text(encoding="utf-8")
-
-import_line = (
-    'import { clearCartDraft, restoreCartDraft, saveCartDraft } '
-    'from "@/lib/cartDraft";'
-)
-
-if import_line not in text:
-    api_import_pattern = re.compile(
-        r'import\s*\{\s*apiGet\s*,\s*apiPost\s*\}\s*'
-        r'from\s*"@/lib/api";'
+def add_suspense_import(text: str) -> str:
+    pattern = re.compile(
+        r'import\s*\{(?P<names>[^}]*)\}\s*from\s*["\']react["\'];?',
+        re.S,
     )
-    match = api_import_pattern.search(text)
+    match = pattern.search(text)
+    if match:
+        names = [name.strip() for name in match.group("names").split(",") if name.strip()]
+        if "Suspense" not in names:
+            names.insert(0, "Suspense")
+            replacement = 'import { ' + ", ".join(names) + ' } from "react";'
+            text = text[:match.start()] + replacement + text[match.end():]
+        return text
+
+    pattern = re.compile(r'import\s+React\s+from\s+["\']react["\'];?')
+    match = pattern.search(text)
+    if match:
+        insertion = match.end()
+        return text[:insertion] + '\nimport { Suspense } from "react";' + text[insertion:]
+
+    directive = re.match(r'(\s*["\']use client["\'];?\s*)', text)
+    if directive:
+        insertion = directive.end()
+        return text[:insertion] + '\nimport { Suspense } from "react";\n' + text[insertion:]
+
+    return 'import { Suspense } from "react";\n' + text
+
+
+def find_matching_brace(text: str, open_index: int) -> int:
+    depth = 0
+    i = open_index
+    state = "code"
+    quote = ""
+
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+
+        if state == "code":
+            if ch in ("'", '"', "`"):
+                state = "string"
+                quote = ch
+            elif ch == "/" and nxt == "/":
+                state = "line_comment"
+                i += 1
+            elif ch == "/" and nxt == "*":
+                state = "block_comment"
+                i += 1
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return i
+        elif state == "string":
+            if ch == "\\":
+                i += 1
+            elif ch == quote:
+                state = "code"
+        elif state == "line_comment":
+            if ch == "\n":
+                state = "code"
+        elif state == "block_comment":
+            if ch == "*" and nxt == "/":
+                state = "code"
+                i += 1
+
+        i += 1
+
+    raise RuntimeError("Could not find the end of the default page component.")
+
+
+def transform_file(path: Path) -> str:
+    original = path.read_text(encoding="utf-8")
+
+    if "useSearchParams(" not in original:
+        return "skip: no useSearchParams"
+
+    if "<Suspense" in original:
+        return "skip: already has Suspense"
+
+    pattern = re.compile(
+        r'export\s+default\s+function\s+(?P<name>[A-Za-z_$][\w$]*)\s*'
+        r'(?P<params>\([^)]*\))\s*(?P<return_type>:\s*[^\{]+)?\{'
+    )
+    match = pattern.search(original)
 
     if not match:
-        raise SystemExit(
-            "Could not find the apiGet/apiPost import in page.tsx"
+        raise RuntimeError(
+            "Unsupported page shape. Expected `export default function PageName() {`."
         )
 
-    text = text[:match.end()] + "\n" + import_line + text[match.end():]
+    name = match.group("name")
+    params = match.group("params")
+    open_brace = match.end() - 1
+    close_brace = find_matching_brace(original, open_brace)
 
-draft_state = "const [draftReady, setDraftReady] = useState(false);"
+    if params.strip() != "()":
+        raise RuntimeError(
+            f"Default component {name}{params} has parameters; automatic wrapping was skipped."
+        )
 
-if draft_state not in text:
-    cart_state_pattern = re.compile(
-        r'const\s*\[\s*cart\s*,\s*setCart\s*\]\s*=\s*'
-        r'useState\s*<\s*CartLine\[\]\s*>\s*\(\s*\[\s*\]\s*\)\s*;'
+    inner_name = f"{name}Content"
+    header = original[match.start():open_brace + 1]
+    new_header = re.sub(
+        r'export\s+default\s+function\s+' + re.escape(name),
+        f'function {inner_name}',
+        header,
+        count=1,
     )
-    match = cart_state_pattern.search(text)
 
-    if not match:
-        raise SystemExit(
-            "Could not find the cart state in page.tsx"
-        )
+    before = original[:match.start()]
+    body_and_close = original[open_brace + 1:close_brace + 1]
+    after = original[close_brace + 1:]
 
-    text = text[:match.end()] + "\n  " + draft_state + text[match.end():]
+    wrapper = f'''
 
-if "const restoredDraft = restoreCartDraft(" not in text:
-    load_page_index = text.find("async function loadPage")
-    if load_page_index < 0:
-        raise SystemExit("Could not find loadPage()")
+export default function {name}() {{
+  return (
+    <Suspense fallback={{<div style={{{{ padding: 24 }}}}>Loading...</div>}}>
+      <{inner_name} />
+    </Suspense>
+  );
+}}
+'''
 
-    bill_pattern = re.compile(
-        r'setBill\s*\(\s*billData\s*\)\s*;'
-    )
-    match = bill_pattern.search(text, load_page_index)
+    updated = before + new_header + body_and_close + wrapper + after
+    updated = add_suspense_import(updated)
 
-    if not match:
-        raise SystemExit(
-            "Could not find setBill(billData) inside loadPage()"
-        )
+    backup = path.with_suffix(path.suffix + ".before-suspense-fix")
+    if not backup.exists():
+        shutil.copy2(path, backup)
 
-    restore_code = '\n      const restoredDraft = restoreCartDraft(\n        code,\n        orderSource,\n        currentSession.session?.id ?? null,\n        menuItems.filter(\n          (item) => item.is_active,\n        ),\n      );\n\n      if (restoredDraft.length > 0) {\n        setCart(restoredDraft);\n      }\n\n      setDraftReady(true);'
-    text = text[:match.end()] + restore_code + text[match.end():]
+    path.write_text(updated, encoding="utf-8")
+    return "fixed"
 
-if "if (!draftReady || !tableCode) return;" not in text:
-    table_effect_pattern = re.compile(
-        r'useEffect\s*\(\s*\(\s*\)\s*=>\s*\{\s*'
-        r'if\s*\(\s*tableCode\s*\)\s*\{\s*'
-        r'void\s+loadPage\s*\(\s*tableCode\s*\)\s*;\s*'
-        r'\}\s*\}\s*,\s*\[\s*tableCode\s*\]\s*\)\s*;'
-    )
-    match = table_effect_pattern.search(text)
 
-    if not match:
-        raise SystemExit(
-            "Could not find the tableCode load effect"
-        )
+def main() -> int:
+    project_root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path.cwd().resolve()
 
-    persistence_effect = '\n  useEffect(() => {\n    if (!draftReady || !tableCode) return;\n\n    saveCartDraft(\n      tableCode,\n      orderSource,\n      session?.id ?? null,\n      cart,\n    );\n  }, [\n    cart,\n    draftReady,\n    orderSource,\n    session?.id,\n    tableCode,\n  ]);'
-    text = text[:match.end()] + persistence_effect + text[match.end():]
+    roots = [
+        project_root / "staff-web",
+        project_root / "customer-web",
+    ]
 
-success_line = "clearCartDraft(tableCode, orderSource);"
+    candidates = []
+    for app_root in roots:
+        app_dir = app_root / "app"
+        if not app_dir.exists():
+            continue
+        for path in app_dir.rglob("page.tsx"):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            if "useSearchParams(" in text:
+                candidates.append(path)
 
-if text.count(success_line) < 2:
-    search_from = 0
-    inserted = text.count(success_line)
+    if not candidates:
+        print("No page.tsx files using useSearchParams() were found.")
+        return 0
 
-    while inserted < 2:
-        post_index = text.find("await apiPost(", search_from)
+    print("Found pages using useSearchParams():")
+    for path in candidates:
+        print(" -", path.relative_to(project_root))
 
-        if post_index < 0:
-            break
+    failures = []
+    changed = 0
+    for path in candidates:
+        try:
+            result = transform_file(path)
+            print(f"[{result}] {path.relative_to(project_root)}")
+            if result == "fixed":
+                changed += 1
+        except Exception as exc:
+            failures.append((path, str(exc)))
+            print(f"[ERROR] {path.relative_to(project_root)}: {exc}")
 
-        set_cart_match = re.search(
-            r'setCart\s*\(\s*\[\s*\]\s*\)\s*;',
-            text[post_index:],
-        )
+    print()
+    print(f"Changed {changed} file(s).")
+    print("Backups use the suffix: .before-suspense-fix")
 
-        if not set_cart_match:
-            break
+    if failures:
+        print()
+        print("Some files were not changed automatically:")
+        for path, error in failures:
+            print(f" - {path.relative_to(project_root)}: {error}")
+        return 1
 
-        absolute_index = post_index + set_cart_match.start()
+    print()
+    print("Next:")
+    print("  cd staff-web && rm -rf .next && npm run build")
+    print("  cd customer-web && rm -rf .next && npm run build")
+    return 0
 
-        text = (
-            text[:absolute_index]
-            + success_line
-            + "\n      "
-            + text[absolute_index:]
-        )
 
-        inserted += 1
-        search_from = absolute_index + len(success_line) + 20
-
-    if inserted < 2:
-        raise SystemExit(
-            "Could not add draft clearing to both successful submit paths"
-        )
-
-page_file.write_text(text, encoding="utf-8")
-
-print("Order draft persistence installed successfully.")
-print("Updated:", page_file)
+if __name__ == "__main__":
+    raise SystemExit(main())
