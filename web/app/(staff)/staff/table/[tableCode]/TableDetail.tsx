@@ -89,7 +89,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   }, [refetch]);
 
   async function handleSquarePayment() {
-    if (!bill || squarePending || markPaidPending) return;
+    if (!bill || squarePending || markPaidPending || cancelCheckoutPending) return;
     setPayError(null);
     setSquarePending(true);
 
@@ -137,7 +137,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   }
 
   async function handleManualMarkPaid() {
-    if (!bill || squarePending || markPaidPending) return;
+    if (!bill || squarePending || markPaidPending || cancelCheckoutPending) return;
     const confirmed = await confirm({
       title: tPay("confirmManualTitle"),
       description: tPay("confirmManualDesc"),
@@ -165,7 +165,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   }
 
   async function handleCancelCheckout() {
-    if (!bill || cancelCheckoutPending) return;
+    if (!bill || cancelCheckoutPending || squarePending || markPaidPending) return;
     const confirmed = await confirm({
       title: tPay("confirmCancelCheckoutTitle"),
       description: tPay("confirmCancelCheckoutDesc"),
@@ -457,9 +457,9 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                   <button
                     type="button"
                     onClick={() => void handleSquarePayment()}
-                    disabled={squarePending || markPaidPending || billPaid}
+                    disabled={squarePending || markPaidPending || cancelCheckoutPending || billPaid}
                     style={{
-                      background: squarePending ? "var(--muted)" : "#C9486A",
+                      background: squarePending || cancelCheckoutPending ? "var(--muted)" : "#C9486A",
                       color: "#fff",
                       borderRadius: 14,
                       padding: "15px",
@@ -467,10 +467,10 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                       fontWeight: 700,
                       fontSize: 15,
                       border: "none",
-                      cursor: squarePending || markPaidPending ? "not-allowed" : "pointer",
-                      opacity: squarePending || markPaidPending ? 0.7 : 1,
+                      cursor: squarePending || markPaidPending || cancelCheckoutPending ? "not-allowed" : "pointer",
+                      opacity: squarePending || markPaidPending || cancelCheckoutPending ? 0.7 : 1,
                       minHeight: "var(--tap-min)",
-                      boxShadow: squarePending || markPaidPending
+                      boxShadow: squarePending || markPaidPending || cancelCheckoutPending
                         ? "none"
                         : "0 12px 24px -12px rgba(201,72,106,0.8)",
                       display: "flex",
@@ -500,17 +500,17 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                   <button
                     type="button"
                     onClick={() => void handleManualMarkPaid()}
-                    disabled={squarePending || markPaidPending || billPaid}
+                    disabled={squarePending || markPaidPending || cancelCheckoutPending || billPaid}
                     style={{
                       border: "1.5px solid rgba(58,42,48,0.14)",
                       background: "transparent",
-                      color: markPaidPending ? "var(--muted)" : "#3A2A30",
+                      color: markPaidPending || cancelCheckoutPending ? "var(--muted)" : "#3A2A30",
                       borderRadius: 14,
                       padding: "12px",
                       fontWeight: 600,
                       fontSize: 13,
-                      cursor: squarePending || markPaidPending ? "not-allowed" : "pointer",
-                      opacity: squarePending || markPaidPending ? 0.7 : 1,
+                      cursor: squarePending || markPaidPending || cancelCheckoutPending ? "not-allowed" : "pointer",
+                      opacity: squarePending || markPaidPending || cancelCheckoutPending ? 0.7 : 1,
                       minHeight: "var(--tap-min)",
                       transition: "opacity 0.15s",
                     }}
