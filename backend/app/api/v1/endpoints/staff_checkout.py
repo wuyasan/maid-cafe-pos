@@ -1,13 +1,17 @@
-from datetime import datetime
 from decimal import Decimal
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.time import utcnow
 from app.models.bill import Bill
-from app.models.enums import BillStatus, SessionTableStatus
+from app.models.enums import BillStatus, PaymentStatus, SessionTableStatus
+from app.models.payment import Payment
 from app.models.maid import Maid
 from app.models.menu import MenuItem, MenuItemComponent
 from app.models.order import Order, OrderItem, OrderItemMaid
@@ -22,6 +26,7 @@ from app.schemas.staff import (
 )
 from app.schemas.table import SessionTableListResponse, SessionTableSummary
 from app.services.session_service import get_current_active_session
+from app.services.square_verification import verify_square_payment
 
 router = APIRouter(prefix="/staff", tags=["staff"])
 
@@ -376,7 +381,76 @@ def start_checkout(
         )
 
     bill.status = BillStatus.paying
+    bill.checkout_total = bill.total
     session_table.status = SessionTableStatus.paying
+
+    db.commit()
+    db.refresh(bill)
+    db.refresh(session_table)
+
+    return {
+        "success": True,
+        "table_code": table_code,
+        "bill_id": bill.id,
+        "bill_status": bill.status,
+        "session_table_status": session_table.status,
+        "checkout_total": str(bill.checkout_total),
+    }
+
+
+@router.post("/table/{table_code}/cancel-checkout")
+def cancel_checkout(
+    table_code: str,
+    db: Session = Depends(get_db),
+):
+    """Revert a bill from 'paying' back to 'open' when the card swipe is cancelled.
+
+    Only allowed when:
+      - The table's current bill is in BillStatus.paying, AND
+      - No Payment row exists for that bill yet.
+
+    If the bill already has a Payment row (charge may have gone through) or is
+    not in 'paying' state, returns 409 to require human verification.
+    """
+    _current_session, session_table, _table = (
+        get_current_session_table_by_code(db, table_code)
+    )
+
+    bill = get_open_or_paying_bill_for_session_table(db, session_table.id)
+
+    if not bill or bill.status != BillStatus.paying:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cannot cancel checkout: bill is not in 'paying' state. "
+                "Current status: "
+                + (bill.status.value if bill else "no active bill")
+                + "."
+            ),
+        )
+
+    # Check for any existing Payment rows — if one exists the charge may have
+    # gone through and we must not silently reopen the bill.
+    existing_payment = (
+        db.execute(
+            select(Payment).where(Payment.bill_id == bill.id)
+        )
+        .scalars()
+        .first()
+    )
+    if existing_payment:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cannot cancel checkout: a Payment record already exists for "
+                "this bill. Manual verification required."
+            ),
+        )
+
+    # Safe to revert: no charge was recorded.
+    bill.status = BillStatus.open
+    bill.checkout_total = None
+    session_table.status = SessionTableStatus.occupied
 
     db.commit()
     db.refresh(bill)
@@ -391,39 +465,428 @@ def start_checkout(
     }
 
 
+class MarkPaidRequest(BaseModel):
+    provider_payment_id: Optional[str] = None
+    amount: Optional[Decimal] = None
+    idempotency_key: Optional[str] = None
+    manual: bool = False  # Set True for staff-override / cash / manual payments.
+
+
 @router.post("/table/{table_code}/mark-paid")
 def mark_paid(
     table_code: str,
+    payload: Optional[MarkPaidRequest] = None,
     db: Session = Depends(get_db),
 ):
+    """Mark a table's bill as paid and release the table.
+
+    Payment path:
+    - Square (default): caller sets provider_payment_id to the Square transaction
+      ID returned by the Square POS app deep-link callback. In production
+      (APP_ENV=production), provider_payment_id is REQUIRED for Square payments —
+      a missing ID is rejected with 400 to ensure every charge is traceable.
+    - Manual override (staff cashier override): set manual=True in the request.
+      This path is always allowed and records provider="manual" on the Payment row
+      for audit purposes. No provider_payment_id is needed.
+
+    Square server-side verification (IMPLEMENTED — config-gated):
+    When SQUARE_ACCESS_TOKEN and SQUARE_LOCATION_ID are set in the environment,
+    this endpoint calls the Square Payments API to verify every non-manual charge:
+      GET https://connect.squareup.com/v2/payments/{provider_payment_id}
+    Assertions: payment.status == "COMPLETED", amount_money.amount matches the
+    expected bill total in cents, and location_id matches SQUARE_LOCATION_ID.
+
+    If credentials are NOT configured (MVP / local dev), the endpoint falls back
+    to the original trust-the-frontend behaviour (traceable but unverified).
+
+    To enable real-money verification, set:
+      SQUARE_ACCESS_TOKEN  – Square OAuth / personal access token
+      SQUARE_LOCATION_ID   – Square location ID that must own the charge
+      SQUARE_API_BASE      – (optional) override API base; default https://connect.squareup.com
+    """
+    import os
+
+    app_env = os.getenv("APP_ENV", "development").strip().lower()
+    is_production = app_env == "production"
+
+    # Determine payment path.
+    is_manual = bool(payload and payload.manual)
+    given_provider_id = payload.provider_payment_id if payload else None
+
+    # In production, Square payments MUST include a provider_payment_id so that
+    # every transaction can be traced back to a real Square charge.
+    if is_production and not is_manual and not given_provider_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "provider_payment_id is required for Square payments in production. "
+                "For manual/cash overrides set manual=true."
+            ),
+        )
+
     _current_session, session_table, _table = (
         get_current_session_table_by_code(db, table_code)
     )
 
+    # Resolve the current open/paying bill FIRST so that idempotency checks
+    # are scoped to THIS bill only — not to arbitrary past paid bills on the
+    # same table.
     bill = get_open_or_paying_bill_for_session_table(db, session_table.id)
-    if not bill:
+
+    # Idempotency: if the CURRENT bill is already paid and the caller
+    # supplies a matching idempotency_key (or provider_payment_id), replay
+    # the existing result without creating a new Payment row.
+    # A bill with no open/paying state means it was already settled.
+    if bill is None:
+        # No active bill — search for an existing Payment on ANY paid bill for
+        # this session_table that matches the caller's identifiers.  This covers
+        # the "late replay" scenario where the table has been reused (bill A paid,
+        # new bill B opened and paid) and the client retries bill-A's identifiers.
+        # Restricting to only `most_recent_paid_bill` would cause a 404 in that
+        # case.
+        if payload and (payload.idempotency_key or payload.provider_payment_id):
+            from sqlalchemy import or_
+            req_idem = payload.idempotency_key
+            req_ppid = payload.provider_payment_id
+            both_supplied = bool(req_idem and req_ppid)
+
+            # Helper: look up a Payment whose bill belongs to this session_table.
+            def _find_payment_on_table(conditions_list) -> Payment | None:
+                return (
+                    db.execute(
+                        select(Payment)
+                        .join(Bill, Payment.bill_id == Bill.id)
+                        .where(
+                            Bill.session_table_id == session_table.id,
+                            Bill.status == BillStatus.paid,
+                            *conditions_list,
+                        )
+                        .order_by(Payment.id.desc())
+                    )
+                    .scalars()
+                    .first()
+                )
+
+            if both_supplied:
+                # Strict AND match: both fields must agree on the same Payment.
+                existing_payment = _find_payment_on_table([
+                    Payment.idempotency_key == req_idem,
+                    Payment.provider_payment_id == req_ppid,
+                ])
+                if existing_payment:
+                    replay_bill = db.get(Bill, existing_payment.bill_id)
+                    # [P3] Amount consistency check on replay.
+                    if payload.amount is not None and Decimal(str(payload.amount)) != existing_payment.amount:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Replay amount {payload.amount} does not match "
+                                f"original payment amount {existing_payment.amount}."
+                            ),
+                        )
+                    return {
+                        "success": True,
+                        "idempotent": True,
+                        "table_code": table_code,
+                        "bill_id": replay_bill.id,
+                        "bill_status": replay_bill.status,
+                        "session_table_status": session_table.status,
+                        "current_party_size": session_table.current_party_size,
+                        "closed_at": replay_bill.closed_at,
+                        "payment_id": existing_payment.id,
+                        "payment_provider": existing_payment.provider,
+                    }
+                # No AND-match found.  Check whether either field alone hits a
+                # payment — that indicates an inconsistent combination → 409.
+                partial_match = _find_payment_on_table([
+                    or_(
+                        Payment.idempotency_key == req_idem,
+                        Payment.provider_payment_id == req_ppid,
+                    )
+                ])
+                if partial_match:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Conflicting payment identifiers: the supplied "
+                            "idempotency_key and provider_payment_id do not "
+                            "both match the same existing payment."
+                        ),
+                    )
+            else:
+                # Single-field path: match by whichever identifier was supplied.
+                conditions = []
+                if req_idem:
+                    conditions.append(Payment.idempotency_key == req_idem)
+                if req_ppid:
+                    conditions.append(Payment.provider_payment_id == req_ppid)
+                existing_payment = _find_payment_on_table([or_(*conditions)])
+                if existing_payment:
+                    replay_bill = db.get(Bill, existing_payment.bill_id)
+                    # [P3] Amount consistency check on replay.
+                    if payload.amount is not None and Decimal(str(payload.amount)) != existing_payment.amount:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Replay amount {payload.amount} does not match "
+                                f"original payment amount {existing_payment.amount}."
+                            ),
+                        )
+                    return {
+                        "success": True,
+                        "idempotent": True,
+                        "table_code": table_code,
+                        "bill_id": replay_bill.id,
+                        "bill_status": replay_bill.status,
+                        "session_table_status": session_table.status,
+                        "current_party_size": session_table.current_party_size,
+                        "closed_at": replay_bill.closed_at,
+                        "payment_id": existing_payment.id,
+                        "payment_provider": existing_payment.provider,
+                    }
         raise HTTPException(
             status_code=404,
             detail="No open or paying bill found for this table.",
         )
 
+    # Amount validation — only when the caller explicitly provides amount.
+    if payload and payload.amount is not None:
+        expected = (
+            bill.checkout_total
+            if bill.checkout_total is not None
+            else bill.total
+        )
+        if payload.amount != expected:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Payment amount {payload.amount} does not match "
+                    f"expected amount {expected}."
+                ),
+            )
+
+    # Resolve the fields we'll record on Payment.
+    payment_amount = (
+        payload.amount
+        if (payload and payload.amount is not None)
+        else (
+            bill.checkout_total
+            if bill.checkout_total is not None
+            else bill.total
+        )
+    )
+
+    # Square server-side verification (config-gated).
+    # Only runs for non-manual Square payments that carry a provider_payment_id.
+    #
+    # Production fail-closed (P3): if Square credentials are NOT configured
+    # and the payment is a non-manual Square charge, reject in production to
+    # prevent unverified money from closing bills.  Manual overrides (cash /
+    # staff cashier) are always allowed even in production.
+    #
+    # Development / staging: maintain trust-the-frontend behaviour when
+    # credentials are absent (MVP ergonomics for unconfigured deployments).
+    if not is_manual and given_provider_id:
+        expected_cents = int(
+            (
+                bill.checkout_total
+                if bill.checkout_total is not None
+                else bill.total
+            )
+            * 100
+        )
+        verification = verify_square_payment(given_provider_id, expected_cents)
+        if not verification.get("configured"):
+            # Square not configured.
+            if is_production:
+                # Fail-closed: production must have Square configured.
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Payment verification not configured. "
+                        "Set SQUARE_ACCESS_TOKEN and SQUARE_LOCATION_ID, "
+                        "or use manual=true for cash/staff overrides."
+                    ),
+                )
+            # Dev/staging: fall through (trust-the-frontend).
+        elif not verification.get("valid"):
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Square payment verification failed: "
+                    f"{verification.get('reason', 'unknown error')}"
+                ),
+            )
+
+    # Choose provider label for audit trail.
+    # "manual" = explicit staff cashier override (no Square transaction).
+    # "square" = Square POS deep-link flow (provider_payment_id should be set).
+    provider_label = "manual" if is_manual else "square"
+
+    now = utcnow()
+
+    # Create a Payment record.
+    given_idempotency_key = payload.idempotency_key if payload else None
+    payment = Payment(
+        bill_id=bill.id,
+        provider=provider_label,
+        provider_payment_id=given_provider_id,
+        idempotency_key=given_idempotency_key,
+        amount=payment_amount,
+        status=PaymentStatus.completed,
+        paid_at=now,
+    )
+    db.add(payment)
+
     bill.status = BillStatus.paid
-    bill.closed_at = datetime.utcnow()
+    bill.closed_at = now
 
     # Payment completed: make the table immediately reusable.
     session_table.status = SessionTableStatus.available
     session_table.current_party_size = 0
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Concurrent duplicate: another request with the same idempotency_key
+        # committed first.  Roll back and replay the existing Payment row so
+        # the caller gets an idempotent 200 instead of a 500.
+        db.rollback()
+        if given_idempotency_key or given_provider_id:
+            from sqlalchemy import or_
+            _both_supplied = bool(given_idempotency_key and given_provider_id)
+
+            if _both_supplied:
+                # Strict AND match: both fields must agree for a safe replay.
+                existing_payment = (
+                    db.execute(
+                        select(Payment)
+                        .where(
+                            Payment.bill_id == bill.id,
+                            Payment.idempotency_key == given_idempotency_key,
+                            Payment.provider_payment_id == given_provider_id,
+                        )
+                        .order_by(Payment.id.desc())
+                    )
+                    .scalars()
+                    .first()
+                )
+                if existing_payment:
+                    # Re-fetch bill/table state from DB after rollback.
+                    db.refresh(bill)
+                    db.refresh(session_table)
+                    # [P3] Amount consistency check on IntegrityError replay.
+                    if payload and payload.amount is not None and Decimal(str(payload.amount)) != existing_payment.amount:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Replay amount {payload.amount} does not match "
+                                f"original payment amount {existing_payment.amount}."
+                            ),
+                        )
+                    return {
+                        "success": True,
+                        "idempotent": True,
+                        "table_code": table_code,
+                        "bill_id": bill.id,
+                        "bill_status": bill.status,
+                        "session_table_status": session_table.status,
+                        "current_party_size": session_table.current_party_size,
+                        "closed_at": bill.closed_at,
+                        "payment_id": existing_payment.id,
+                        "payment_provider": existing_payment.provider,
+                    }
+                # Check for a partial (inconsistent) match → 409 conflict.
+                partial_match = (
+                    db.execute(
+                        select(Payment)
+                        .where(
+                            Payment.bill_id == bill.id,
+                            or_(
+                                Payment.idempotency_key == given_idempotency_key,
+                                Payment.provider_payment_id == given_provider_id,
+                            ),
+                        )
+                        .order_by(Payment.id.desc())
+                    )
+                    .scalars()
+                    .first()
+                )
+                if partial_match:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Conflicting payment identifiers: the supplied "
+                            "idempotency_key and provider_payment_id do not "
+                            "both match the same existing payment."
+                        ),
+                    )
+            else:
+                # Single-field path: match by whichever identifier was supplied.
+                _conditions = []
+                if given_idempotency_key:
+                    _conditions.append(
+                        Payment.idempotency_key == given_idempotency_key
+                    )
+                if given_provider_id:
+                    _conditions.append(
+                        Payment.provider_payment_id == given_provider_id
+                    )
+                existing_payment = (
+                    db.execute(
+                        select(Payment)
+                        .where(
+                            Payment.bill_id == bill.id,
+                            or_(*_conditions),
+                        )
+                        .order_by(Payment.id.desc())
+                    )
+                    .scalars()
+                    .first()
+                )
+                if existing_payment:
+                    # Re-fetch bill/table state from DB after rollback.
+                    db.refresh(bill)
+                    db.refresh(session_table)
+                    # [P3] Amount consistency check on IntegrityError replay.
+                    if payload and payload.amount is not None and Decimal(str(payload.amount)) != existing_payment.amount:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Replay amount {payload.amount} does not match "
+                                f"original payment amount {existing_payment.amount}."
+                            ),
+                        )
+                    return {
+                        "success": True,
+                        "idempotent": True,
+                        "table_code": table_code,
+                        "bill_id": bill.id,
+                        "bill_status": bill.status,
+                        "session_table_status": session_table.status,
+                        "current_party_size": session_table.current_party_size,
+                        "closed_at": bill.closed_at,
+                        "payment_id": existing_payment.id,
+                        "payment_provider": existing_payment.provider,
+                    }
+        raise HTTPException(
+            status_code=409,
+            detail="Concurrent payment conflict. Please retry.",
+        )
+
     db.refresh(bill)
     db.refresh(session_table)
+    db.refresh(payment)
 
     return {
         "success": True,
+        "idempotent": False,
         "table_code": table_code,
         "bill_id": bill.id,
         "bill_status": bill.status,
         "session_table_status": session_table.status,
         "current_party_size": session_table.current_party_size,
         "closed_at": bill.closed_at,
+        "payment_id": payment.id,
+        "payment_provider": payment.provider,
     }

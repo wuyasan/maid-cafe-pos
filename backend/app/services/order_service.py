@@ -12,6 +12,7 @@ from app.models.order import Order, OrderItem, OrderItemMaid, ProductionTask
 from app.models.session import Session as SessionModel
 from app.models.table import SessionTable
 from app.schemas.order import CustomerOrderCreate
+from app.core.time import now_in_cafe_tz
 from app.services.bill_service import recalculate_bill_totals
 from app.services.pricing_service import calculate_order_item_price
 
@@ -82,6 +83,8 @@ def _station_is_closed(
         return True
     if now.date() < session.service_date:
         return False
+    # now may be timezone-aware (cafe tz); strip tzinfo for comparison with
+    # the naive time stored in session.kitchen/bar_last_order_time.
     return now.time().replace(tzinfo=None) >= cutoff
 
 
@@ -90,7 +93,7 @@ def _validate_station(
     station: ProductionStation,
     item_name: str,
 ) -> None:
-    if not _station_is_closed(session, station, datetime.now()):
+    if not _station_is_closed(session, station, now_in_cafe_tz()):
         return
     station_name = (
         "Kitchen" if station == ProductionStation.kitchen else "Bar"

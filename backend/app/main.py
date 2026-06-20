@@ -1,30 +1,41 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+# ---------------------------------------------------------------------------
+# Step 1 — validate pure-config values that depend on NO external resources.
+# This must happen BEFORE importing api_router (or anything that pulls in
+# app.core.database) so that a misconfigured CAFE_TIMEZONE surfaces as a
+# clear RuntimeError instead of being masked by the DATABASE_URL error that
+# database.py raises at import time.
+# ---------------------------------------------------------------------------
+from app.core.time import validate_cafe_timezone
+
+validate_cafe_timezone()
+
+# ---------------------------------------------------------------------------
+# Step 2 — import modules that touch the database / heavier dependencies.
+# database.py does a fail-fast check for DATABASE_URL at import time; by
+# reaching here we have already validated all config that is cheaper to check.
+# ---------------------------------------------------------------------------
 from app.api.v1.api import api_router
+from app.core.cors import cors_config
+from app.core.gateway_auth import require_gateway
 
 app = FastAPI(title="Maid Cafe Order API")
 
+# ---------------------------------------------------------------------------
+# CORS – prod: strict allowlist from FRONTEND_ORIGINS (comma-separated).
+# dev (var unset): localhost + RFC1918 private LAN ranges, so the old staff-web
+# and iPad on the cafe LAN keep working during Phase 1 (the "any host" catch-all
+# is intentionally gone). See app/core/cors.py.
+# ---------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
-    allow_origin_regex=(
-        r"^https?://("
-        r"192\.168\.\d{1,3}\.\d{1,3}|"
-        r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
-        r"172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|"
-        r"[^/]+"
-        r")(:\d+)?$"
-    ),
+    **cors_config(os.getenv("FRONTEND_ORIGINS")),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,13 +43,25 @@ app.add_middleware(
 
 if os.getenv("IMAGE_STORAGE_BACKEND", "local").strip().lower() == "local":
     upload_root = Path(
-        os.getenv("LOCAL_UPLOAD_DIR", "uploads/menu-items")
+        os.getenv("LOCAL_UPLOAD_ROOT", "uploads")
     ).resolve()
-    upload_root.mkdir(parents=True, exist_ok=True)
+    # Ensure sub-folders exist so StaticFiles doesn't fail on an empty root.
+    (upload_root / "menu-items").mkdir(parents=True, exist_ok=True)
+    (upload_root / "maids").mkdir(parents=True, exist_ok=True)
     app.mount(
-        "/uploads/menu-items",
+        "/uploads",
         StaticFiles(directory=str(upload_root)),
-        name="menu-item-uploads",
+        name="uploads",
     )
 
-app.include_router(api_router, prefix="/api/v1")
+# ---------------------------------------------------------------------------
+# Health check – exempt from gateway auth so load-balancers / monitors can
+# always reach it without credentials.
+# ---------------------------------------------------------------------------
+@app.get("/api/v1/health", tags=["health"])
+def health_check():
+    return {"status": "ok"}
+
+
+# All other /api/v1/* routes require the gateway token (when configured).
+app.include_router(api_router, prefix="/api/v1", dependencies=[Depends(require_gateway)])

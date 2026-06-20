@@ -4,9 +4,22 @@
     <string>square-commerce-v1</string>
 </array>
 
-<!-- Development only when Staff Web uses local HTTP. Use HTTPS in production. -->
+<!-- App Transport Security.
+     PRODUCTION: serve Staff Web over HTTPS (set STAFF_DASHBOARD_URL to an https://
+     URL) and you need NO ATS exception — delete this whole block.
+     DEVELOPMENT ONLY: if Staff Web must be reached over plain HTTP on the LAN,
+     scope the exception to that ONE host instead of globally allowing arbitrary
+     loads. Replace 192.168.1.25 with your dev host. Never ship NSAllowsArbitraryLoads. -->
 <key>NSAppTransportSecurity</key>
 <dict>
-    <key>NSAllowsArbitraryLoads</key>
-    <true/>
+    <key>NSExceptionDomains</key>
+    <dict>
+        <key>192.168.1.25</key>
+        <dict>
+            <key>NSExceptionAllowsInsecureHTTPLoads</key>
+            <true/>
+            <key>NSIncludesSubdomains</key>
+            <false/>
+        </dict>
+    </dict>
 </dict>

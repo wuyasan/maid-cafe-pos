@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -8,29 +10,20 @@ from app.models.order import Order, OrderItem, OrderItemMaid
 from app.schemas.bill import BillDetailRead
 from app.schemas.order import CustomerOrderCreate, OrderCreateResponse
 from app.services.bill_service import (
+    get_open_bill_for_session_table,
     get_or_create_open_bill,
     get_session_table_by_table_code,
     recalculate_bill_totals,
 )
+from app.models.enums import BillStatus
 from app.services.order_service import create_order_for_bill
 from app.services.session_service import get_current_active_session
 
 router = APIRouter(prefix="/customer", tags=["customer"])
 
 
-@router.get("/table/{table_code}/bill", response_model=BillDetailRead)
-def get_table_bill(table_code: str, db: Session = Depends(get_db)):
-    current_session = get_current_active_session(db)
-    if not current_session:
-        raise HTTPException(status_code=404, detail="No active session found.")
-
-    session_table = get_session_table_by_table_code(db, current_session.id, table_code)
-    if not session_table:
-        raise HTTPException(status_code=404, detail="Table not found in current session.")
-
-    base_bill = get_or_create_open_bill(db, session_table.id)
-    db.commit()
-
+def _load_bill_detail(db: Session, bill_id: int) -> BillDetailRead:
+    """Load a Bill with all nested relations and assemble BillDetailRead."""
     bill = (
         db.execute(
             select(Bill)
@@ -42,8 +35,11 @@ def get_table_bill(table_code: str, db: Session = Depends(get_db)):
                 .joinedload(Order.items)
                 .joinedload(OrderItem.selected_maids)
                 .joinedload(OrderItemMaid.maid),
+                joinedload(Bill.orders)
+                .joinedload(Order.items)
+                .joinedload(OrderItem.production_tasks),
             )
-            .where(Bill.id == base_bill.id)
+            .where(Bill.id == bill_id)
         )
         .scalars()
         .first()
@@ -71,6 +67,7 @@ def get_table_bill(table_code: str, db: Session = Depends(get_db)):
                         }
                         for sm in item.selected_maids
                     ],
+                    "production_status": _aggregate_production_status(item),
                 }
             )
 
@@ -88,6 +85,55 @@ def get_table_bill(table_code: str, db: Session = Depends(get_db)):
     )
 
 
+def _aggregate_production_status(item: OrderItem) -> Optional[str]:
+    """Derive a single production_status from all ProductionTasks on an item.
+
+    Rules:
+    - If the item has NO production tasks (e.g. station=none / maid-service
+      items), return None.  Callers can display this however they like; it
+      simply means "no production tracking applies".
+    - If ALL tasks are completed  → "completed"
+    - If ANY task is preparing    → "preparing"
+    - Otherwise                   → "pending"
+    """
+    tasks = item.production_tasks
+    if not tasks:
+        # No production tasks: production tracking does not apply.
+        return None
+
+    statuses = {t.status.value if hasattr(t.status, "value") else t.status for t in tasks}
+
+    if statuses == {"completed"}:
+        return "completed"
+    if "preparing" in statuses:
+        return "preparing"
+    return "pending"
+
+
+@router.get("/table/{table_code}/bill", response_model=Optional[BillDetailRead])
+def get_table_bill(table_code: str, db: Session = Depends(get_db)):
+    """Read-only: returns the existing open bill or None.
+
+    This endpoint no longer creates a bill.  If no open bill exists for the
+    table the response is 204 No Content (null body).  Creation happens only
+    via the POST /orders path below.
+    """
+    current_session = get_current_active_session(db)
+    if not current_session:
+        raise HTTPException(status_code=404, detail="No active session found.")
+
+    session_table = get_session_table_by_table_code(db, current_session.id, table_code)
+    if not session_table:
+        raise HTTPException(status_code=404, detail="Table not found in current session.")
+
+    base_bill = get_open_bill_for_session_table(db, session_table.id)
+    if base_bill is None:
+        # No bill exists yet – do NOT create one.
+        return None
+
+    return _load_bill_detail(db, base_bill.id)
+
+
 @router.post("/table/{table_code}/orders", response_model=OrderCreateResponse)
 def create_customer_order(
     table_code: str,
@@ -102,7 +148,17 @@ def create_customer_order(
     if not session_table:
         raise HTTPException(status_code=404, detail="Table not found in current session.")
 
+    # Phase 3: freeze ordering when a bill is in the middle of checkout (paying).
+    # A paid bill is considered closed; new orders will open a fresh bill.
+    existing_bill = get_open_bill_for_session_table(db, session_table.id)
+    if existing_bill and existing_bill.status == BillStatus.paying:
+        raise HTTPException(
+            status_code=409,
+            detail="Bill is in checkout; complete or cancel it first.",
+        )
+
     try:
+        # get-or-create lives here (the write path), not in GET bill.
         bill = get_or_create_open_bill(db, session_table.id)
         order = create_order_for_bill(db, bill, payload)
 

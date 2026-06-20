@@ -1,0 +1,138 @@
+@import "tailwindcss";
+@import "./fonts.css";
+
+:root {
+  /* ── Typography ────────────────────────────────────────────────────────────
+     Font variables are set via next/font/local in layout.tsx. The stacks below
+     provide explicit family names as fallbacks. */
+  --font-display-stack: var(--font-display, "Zen Maru Gothic"), "Zen Maru Gothic", "Noto Sans SC", system-ui, sans-serif;
+  --font-body-stack: var(--font-body, "Zen Kaku Gothic New"), "Zen Kaku Gothic New", "Noto Sans SC", system-ui, sans-serif;
+  --font-num-stack: var(--font-num, "Space Grotesk"), "Space Grotesk", system-ui, sans-serif;
+
+  /* ── Colour palette ────────────────────────────────────────────────────────
+     Maid-cafe brand tokens (exact hex values from design file).
+     Light-only — no prefers-color-scheme dark, to avoid WebView dark-mode surprises. */
+
+  /* Surfaces */
+  --page-bg: #E7DFDA;        /* outer page / canvas background */
+  --background: #FBF6F3;     /* card surface / inner screen */
+  --card: #ffffff;            /* elevated card */
+  --foreground: #3A2A30;     /* primary text */
+  --muted: #7E6A70;          /* secondary text */
+  --muted-2: #A8959A;        /* tertiary / placeholder */
+  --line: rgba(58, 42, 48, 0.12); /* dividers & borders */
+
+  /* Brand */
+  --brand: #C9486A;          /* primary rose — CTAs, accents */
+  --brand-soft: #E0607E;     /* hover / lighter rose */
+  --brand-light: #F7E2E6;    /* very light rose tint */
+  --maid: #8E86C9;           /* 女仆服务 mist-lavender */
+
+  /* Extended palette (from design swatch) */
+  --ready: #7BAE8E;          /* ready / paid — sage green */
+  --cooking: #D69A4E;        /* preparing — amber */
+  --selected: #2BB3C0;       /* selected state — teal */
+
+  /* Status badge backgrounds & text */
+  --status-empty-bg: #EEE8E5;     --status-empty-text: #8A7873;
+  --status-cooking-bg: #FAEFDD;   --status-cooking-text: #A87E2E;
+  --status-full-bg: #FBEAEE;      --status-full-text: #C9486A;
+  --status-checkout-bg: #EDEBF6;  --status-checkout-text: #6E66A8;
+  --status-ready-bg: #E6F1EA;     --status-ready-text: #3F8763;
+  --status-closed-bg: #F4E7E9;    --status-closed-text: #A8567E;
+
+  /* Image placeholder */
+  --placeholder-gradient: linear-gradient(135deg, #F4E7E9, #EFE0E3);
+
+  /* ── Layout ────────────────────────────────────────────────────────────── */
+  --radius: 18px;            /* default card corner radius */
+  --radius-sm: 12px;         /* smaller interactive elements */
+  --radius-pill: 9999px;     /* pill / full-round */
+  --shadow-card: 0 6px 18px -8px rgba(58, 42, 48, 0.18);    /* card lift */
+  --shadow-float: 0 12px 32px -10px rgba(58, 42, 48, 0.22); /* modal/float */
+  --shadow-login: 0 28px 56px -28px rgba(58, 42, 48, 0.5);  /* login card outer */
+  --shadow-inner: 0 18px 40px -18px rgba(58, 42, 48, 0.5);  /* login card inner */
+  --tap-min: 44px;           /* minimum touch target */
+
+  /* ── Type scale ─────────────────────────────────────────────────────────── */
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 13.5px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 21px;
+  --text-2xl: 23px;
+  --text-display: 44px;
+}
+
+/* ── Keyframes (from design head) ──────────────────────────────────────────── */
+@keyframes liveDot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.28; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes shimmer {
+  0%   { background-position: -180% 0; }
+  100% { background-position: 180% 0; }
+}
+@keyframes softFloat {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-5px); }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-maid: var(--maid);
+  --color-selected: var(--selected);
+  --color-ready: var(--ready);
+  --color-cooking: var(--cooking);
+  --color-page-bg: var(--page-bg);
+}
+
+/* ── Base styles ──────────────────────────────────────────────────────────── */
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body-stack);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display-stack);
+}
+
+/* ── Utility classes ──────────────────────────────────────────────────────── */
+
+/* Numeric / price / quantity — tabular figures, Space Grotesk */
+.num {
+  font-family: var(--font-num-stack);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Eyebrow label (small caps tracking) */
+.eyebrow {
+  font-family: var(--font-num-stack);
+  font-size: 0.6875rem;  /* 11px */
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Card surface with design-system shadow */
+.card-surface {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--line);
+}
