@@ -65,3 +65,40 @@ def health_check():
 
 # All other /api/v1/* routes require the gateway token (when configured).
 app.include_router(api_router, prefix="/api/v1", dependencies=[Depends(require_gateway)])
+
+
+# ---------------------------------------------------------------------------
+# Startup — idempotently bootstrap the default staff accounts from env PINs.
+# Controlled by ENABLE_STARTUP_BOOTSTRAP (default "true"); the test suite turns
+# it off so the TestClient lifespan never touches the real DB session.
+# Wrapped in try/except so a bootstrap failure can never crash startup.
+# ---------------------------------------------------------------------------
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _bootstrap_enabled() -> bool:
+    return os.getenv("ENABLE_STARTUP_BOOTSTRAP", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+@app.on_event("startup")
+def _startup_bootstrap_staff_users() -> None:
+    if not _bootstrap_enabled():
+        return
+    try:
+        from app.core.database import SessionLocal
+        from app.services.staff_user_service import bootstrap_staff_users
+
+        db = SessionLocal()
+        try:
+            bootstrap_staff_users(db)
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — never let bootstrap crash startup.
+        logger.exception("Staff-user bootstrap failed; continuing startup.")

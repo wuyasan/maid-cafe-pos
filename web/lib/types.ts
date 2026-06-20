@@ -471,3 +471,38 @@ export interface SessionMaidAdminRead {
   maid_name: string;
   maid_photo_url: string | null;
 }
+
+// ── Staff users (account system, F1) ────────────────────────────────────────────
+export type StaffUserRole = "staff" | "manager" | "admin";
+
+/** Returned by POST /staff/auth/login. */
+export interface StaffAuthUser {
+  id: number;
+  username: string;
+  display_name: string;
+  role: StaffUserRole;
+}
+
+/** Returned by the admin staff-users endpoints. */
+export interface StaffUserAdmin {
+  id: number;
+  username: string;
+  display_name: string;
+  role: StaffUserRole;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+export interface StaffUserCreate {
+  username: string;
+  display_name: string;
+  role: StaffUserRole;
+  pin: string;
+}
+
+export interface StaffUserUpdate {
+  display_name?: string;
+  role?: StaffUserRole;
+  is_active?: boolean;
+}

@@ -54,12 +54,12 @@
     "subtitle": "Staff sign in · 员工登录",
     "roleStaff": "店员",
     "roleAdmin": "管理",
-    "idLabel": "工号 / 邮箱",
-    "idPlaceholder": "工号 / 邮箱",
-    "pinLabel": "密码 / PIN",
-    "pinPlaceholder": "密码 / PIN",
+    "idLabel": "Username",
+    "idPlaceholder": "Username · 用户名",
+    "pinLabel": "PIN",
+    "pinPlaceholder": "PIN · 密码",
     "submit": "登录 Sign in",
-    "wrongPin": "Incorrect PIN. Please try again.",
+    "wrongPin": "Incorrect username or PIN.",
     "rateLimited": "Too many attempts. Please wait and try again.",
     "error": "Login failed. Please try again."
   },
@@ -279,6 +279,47 @@
       "lineItemsLabel": "Line Items"
     },
     "comingSoon": "Coming soon",
+    "staffUsers": {
+      "title": "Staff Accounts",
+      "subtitle": "Create and manage staff logins, roles, and PINs.",
+      "newUser": "New User",
+      "editUser": "Edit User",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…",
+      "edit": "Edit",
+      "disable": "Disable",
+      "enable": "Enable",
+      "disabled": "Disabled",
+      "resetPin": "Reset PIN",
+      "resetPinFor": "Reset PIN for {name}",
+      "noUsers": "No staff users yet.",
+      "editAria": "Edit {name}",
+      "resetPinAria": "Reset PIN for {name}",
+      "disableAria": "Disable {name}",
+      "enableAria": "Enable {name}",
+      "confirmDisableTitle": "Disable {name}?",
+      "confirmDisableDesc": "They will no longer be able to sign in until re-enabled.",
+      "fields": {
+        "username": "Username",
+        "displayName": "Display Name",
+        "role": "Role",
+        "pin": "PIN",
+        "newPin": "New PIN"
+      },
+      "role": {
+        "staff": "Staff",
+        "manager": "Manager",
+        "admin": "Admin"
+      },
+      "hints": {
+        "username": "3–50 characters: lowercase letters, digits, and . _ - only.",
+        "pin": "4–12 digits."
+      },
+      "loadErrorTitle": "Couldn't load staff accounts",
+      "loadErrorHint": "The server returned an error. Tap to retry.",
+      "retry": "Retry"
+    },
     "categories": {
       "title": "Categories",
       "subtitle": "Manage menu categories and production stations.",

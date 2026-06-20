@@ -79,6 +79,12 @@ import {
   type SessionMaidApi,
   type StaffTablesApi,
 } from "@/lib/normalize";
+import type {
+  StaffAuthUser,
+  StaffUserAdmin,
+  StaffUserCreate,
+  StaffUserUpdate,
+} from "@/lib/types";
 
 // BFF core: the ONLY place that talks to FastAPI. Browser never calls FastAPI directly.
 // In prod, INTERNAL_GATEWAY_TOKEN is set on both sides so FastAPI only trusts this server.
@@ -98,6 +104,48 @@ function authHeaders(extra?: HeadersInit): Headers {
   h.set("content-type", "application/json");
   if (TOKEN) h.set("x-internal-token", TOKEN);
   return h;
+}
+
+/**
+ * Actor (audit) identity attached to FastAPI write calls.
+ * F2 (audit log) will consume `X-Actor-Id` / `X-Actor-Role`; FastAPI may ignore
+ * them for now. Reads the current signed session and returns headers carrying the
+ * acting user. Imported lazily to avoid pulling next/headers into read-only paths.
+ */
+export interface Actor {
+  uid?: number;
+  role?: string;
+}
+
+/** Read the acting user from the current session cookie (best-effort, never throws). */
+export async function currentActor(): Promise<Actor | null> {
+  try {
+    const { getSession } = await import("@/lib/server/auth");
+    const s = await getSession();
+    if (!s) return null;
+    return { uid: s.uid, role: s.role };
+  } catch {
+    return null;
+  }
+}
+
+function withActor(actor: Actor | null | undefined, extra?: HeadersInit): Headers {
+  const h = authHeaders(extra);
+  if (actor?.uid != null) h.set("x-actor-id", String(actor.uid));
+  if (actor?.role) h.set("x-actor-role", actor.role);
+  return h;
+}
+
+/**
+ * Build write headers, auto-stamping the acting user. If an explicit actor is
+ * passed it is used as-is (callers like staff-user actions resolve it eagerly);
+ * otherwise we resolve `currentActor()` from the session so EVERY write (menu /
+ * sessions / tables / production / …) carries X-Actor-* for F2 audit. Headers are
+ * stamped exactly once — there is no double-stamping path.
+ */
+async function writeHeaders(actor?: Actor | null): Promise<Headers> {
+  const resolved = actor !== undefined ? actor : await currentActor();
+  return withActor(resolved);
 }
 
 // Semi-static reads use a short revalidate window: during Phase 1 the OLD staff-web
@@ -120,39 +168,43 @@ async function getLive<T>(path: string): Promise<T> {
   return handle<T>(res);
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+// All write verbs are actor-aware: they stamp X-Actor-Id / X-Actor-Role from the
+// current session (or an explicitly-passed actor) so F2 audit covers every write,
+// not just staff-user mutations. Reads (getJson/getLive) are unaffected.
+
+async function postJson<T>(path: string, body: unknown, actor?: Actor | null): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: await writeHeaders(actor),
     body: JSON.stringify(body),
     cache: "no-store",
   });
   return handle<T>(res);
 }
 
-async function patchJson<T>(path: string, body: unknown): Promise<T> {
+async function patchJson<T>(path: string, body: unknown, actor?: Actor | null): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "PATCH",
-    headers: authHeaders(),
+    headers: await writeHeaders(actor),
     body: JSON.stringify(body),
     cache: "no-store",
   });
   return handle<T>(res);
 }
 
-async function deleteReq<T>(path: string): Promise<T> {
+async function deleteReq<T>(path: string, actor?: Actor | null): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "DELETE",
-    headers: authHeaders(),
+    headers: await writeHeaders(actor),
     cache: "no-store",
   });
   return handle<T>(res);
 }
 
-async function putJson<T>(path: string, body: unknown): Promise<T> {
+async function putJson<T>(path: string, body: unknown, actor?: Actor | null): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "PUT",
-    headers: authHeaders(),
+    headers: await writeHeaders(actor),
     body: JSON.stringify(body),
     cache: "no-store",
   });
@@ -177,6 +229,23 @@ async function handle<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  // ── Staff auth ───────────────────────────────────────────────────────────────
+  staffLogin: (username: string, pin: string): Promise<StaffAuthUser> =>
+    postJson<StaffAuthUser>("/staff/auth/login", { username, pin }),
+
+  // ── Admin: Staff users ─────────────────────────────────────────────────────────
+  getStaffUsers: () => getLive<StaffUserAdmin[]>("/admin/staff-users"),
+  createStaffUser: (body: StaffUserCreate, actor?: Actor | null) =>
+    postJson<StaffUserAdmin>("/admin/staff-users", body, actor),
+  updateStaffUser: (id: number, body: StaffUserUpdate, actor?: Actor | null) =>
+    patchJson<StaffUserAdmin>(`/admin/staff-users/${id}`, body, actor),
+  resetStaffUserPin: (id: number, pin: string, actor?: Actor | null) =>
+    postJson<{ success?: boolean } & Partial<StaffUserAdmin>>(
+      `/admin/staff-users/${id}/reset-pin`,
+      { pin },
+      actor,
+    ),
+
   // Semi-static (short revalidate + tags)
   getCurrentSession: (): Promise<SessionRead | null> =>
     getJson<CurrentSessionApi>("/sessions/current", { tags: ["session"] }).then(unwrapSession),

@@ -54,12 +54,12 @@
     "subtitle": "Staff sign in · 员工登录",
     "roleStaff": "店员",
     "roleAdmin": "管理",
-    "idLabel": "工号 / 邮箱",
-    "idPlaceholder": "工号 / 邮箱",
-    "pinLabel": "密码 / PIN",
-    "pinPlaceholder": "密码 / PIN",
+    "idLabel": "用户名",
+    "idPlaceholder": "用户名 · Username",
+    "pinLabel": "PIN",
+    "pinPlaceholder": "密码 · PIN",
     "submit": "登录 Sign in",
-    "wrongPin": "密码错误，请重试。",
+    "wrongPin": "用户名或 PIN 错误。",
     "rateLimited": "尝试次数过多，请稍后再试。",
     "error": "登录失败，请重试。"
   },
@@ -279,6 +279,47 @@
       "lineItemsLabel": "品项数"
     },
     "comingSoon": "即将上线",
+    "staffUsers": {
+      "title": "员工账号",
+      "subtitle": "创建和管理员工登录、角色与 PIN。",
+      "newUser": "新增账号",
+      "editUser": "编辑账号",
+      "cancel": "取消",
+      "save": "保存",
+      "saving": "保存中…",
+      "edit": "编辑",
+      "disable": "停用",
+      "enable": "启用",
+      "disabled": "已停用",
+      "resetPin": "重置 PIN",
+      "resetPinFor": "为 {name} 重置 PIN",
+      "noUsers": "暂无员工账号。",
+      "editAria": "编辑 {name}",
+      "resetPinAria": "为 {name} 重置 PIN",
+      "disableAria": "停用 {name}",
+      "enableAria": "启用 {name}",
+      "confirmDisableTitle": "停用 {name}？",
+      "confirmDisableDesc": "在重新启用之前，该账号将无法登录。",
+      "fields": {
+        "username": "用户名",
+        "displayName": "显示名称",
+        "role": "角色",
+        "pin": "PIN",
+        "newPin": "新 PIN"
+      },
+      "role": {
+        "staff": "店员",
+        "manager": "经理",
+        "admin": "管理员"
+      },
+      "hints": {
+        "username": "3–50 个字符：仅限小写字母、数字以及 . _ -。",
+        "pin": "4–12 位数字。"
+      },
+      "loadErrorTitle": "无法加载员工账号",
+      "loadErrorHint": "服务器返回错误，点击重试。",
+      "retry": "重试"
+    },
     "categories": {
       "title": "品类管理",
       "subtitle": "管理菜单品类及出品工位。",
