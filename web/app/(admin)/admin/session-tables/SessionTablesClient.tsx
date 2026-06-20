@@ -21,6 +21,15 @@ import {
 } from "@/components/admin/adminStyles";
 import type { SessionRead, TableRead, SessionTableAdminSummary, SessionTableStatus } from "@/lib/types";
 
+const tableCodeCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function compareTableCodes(a: string, b: string) {
+  return tableCodeCollator.compare(a, b);
+}
+
 function statusBadge(status: SessionTableStatus, partySize: number) {
   if (status === "paying") return { bg: "#FEF3C7", color: "#92400E", label: "Paying" };
   if (partySize === 0) return { bg: "#DCFCE7", color: "#166534", label: "Empty" };
@@ -66,10 +75,41 @@ export function SessionTablesClient({ initialSessions, initialTables }: SessionT
     return () => { cancelled = true; clearTimeout(handle); };
   }, [selectedSessionId]);
 
-  const activeTables = useMemo(() => initialTables.filter((t) => t.is_active), [initialTables]);
-  const linkedTableIds = useMemo(() => new Set(sessionTables.map((st) => st.table_id)), [sessionTables]);
-  const availableToAdd = useMemo(() => activeTables.filter((t) => !linkedTableIds.has(t.id)), [activeTables, linkedTableIds]);
-  const selectedAddTable = activeTables.find((t) => t.id === addTableId) ?? null;
+const activeTables = useMemo(
+  () =>
+    initialTables
+      .filter((table) => table.is_active)
+      .slice()
+      .sort((a, b) => compareTableCodes(a.code, b.code)),
+  [initialTables],
+);
+
+const sortedSessionTables = useMemo(
+  () =>
+    sessionTables
+      .slice()
+      .sort((a, b) =>
+        compareTableCodes(a.table_code, b.table_code),
+      ),
+  [sessionTables],
+);
+
+const linkedTableIds = useMemo(
+  () => new Set(sessionTables.map((st) => st.table_id)),
+  [sessionTables],
+);
+
+const availableToAdd = useMemo(
+  () =>
+    activeTables.filter(
+      (table) => !linkedTableIds.has(table.id),
+    ),
+  [activeTables, linkedTableIds],
+);
+
+const selectedAddTable =
+  activeTables.find((table) => table.id === addTableId) ??
+  null;
 
   function refreshSessionTables() {
     if (!selectedSessionId) return;
@@ -216,7 +256,7 @@ export function SessionTablesClient({ initialSessions, initialTables }: SessionT
         <div style={{ ...adminCard, color: "var(--muted)", textAlign: "center" }}>{t("noLinkedTables")}</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-          {sessionTables.map((st) => {
+          {sortedSessionTables.map((st) => {
             const busy = busyId === st.id || (actionPending && busyId === st.id);
             const remaining = Math.max(0, st.seats - st.current_party_size);
             const badge = statusBadge(st.status, st.current_party_size);
