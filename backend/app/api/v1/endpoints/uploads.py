@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from io import BytesIO
 from pathlib import Path
 
@@ -11,6 +12,16 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse
+from PIL import Image, UnidentifiedImageError
+# Image.DecompressionBombError is a subclass of OSError in recent Pillow, but
+# is also registered as its own exception; import it explicitly so the narrow
+# except clause below is self-documenting.
+_DECODE_ERRORS = (
+    UnidentifiedImageError,
+    OSError,
+    SyntaxError,
+    Image.DecompressionBombError,
+)
 
 from app.services.image_storage import (
     ALLOWED_CONTENT_TYPES,
@@ -25,6 +36,56 @@ router = APIRouter(
     prefix="/admin/uploads",
     tags=["admin-uploads"],
 )
+
+
+# ---------------------------------------------------------------------------
+# P3 (updated): full Pillow decode validation + real format detection.
+# ---------------------------------------------------------------------------
+
+# Map Pillow format strings to MIME types.
+_PILLOW_FORMAT_TO_MIME: dict[str, str] = {
+    "PNG": "image/png",
+    "JPEG": "image/jpeg",
+    "GIF": "image/gif",
+    "WEBP": "image/webp",
+}
+
+
+def _validate_and_get_content_type(data: bytes) -> str:
+    """Fully decode image bytes with Pillow; return the real MIME type.
+
+    Raises HTTPException 400 if the bytes are not a valid, fully-decodable
+    image in one of the supported formats (PNG, JPEG, GIF, WEBP).
+    """
+    try:
+        buf = BytesIO(data)
+        img = Image.open(buf)
+        # verify() checks the file integrity (detects truncated/corrupt files)
+        # but consumes the stream; we re-open for load() which fully decodes.
+        img.verify()
+        buf.seek(0)
+        img2 = Image.open(buf)
+        img2.load()
+        fmt = img2.format  # e.g. "PNG", "JPEG"
+    except _DECODE_ERRORS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "File contents do not match a supported image format "
+                "(PNG, JPEG, WEBP, or GIF)."
+            ),
+        )
+
+    mime = _PILLOW_FORMAT_TO_MIME.get(fmt or "")
+    if not mime:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "File contents do not match a supported image format "
+                "(PNG, JPEG, WEBP, or GIF)."
+            ),
+        )
+    return mime
 
 
 async def _upload(
@@ -69,12 +130,15 @@ async def _upload(
             ),
         )
 
+    # P3: fully decode with Pillow; get real format (ignores declared MIME).
+    real_content_type = _validate_and_get_content_type(payload)
+
     try:
         stored_value = save_image(
             BytesIO(payload),
             folder,
             image.filename or "image",
-            content_type,
+            real_content_type,
         )
     except (
         RuntimeError,
@@ -86,11 +150,19 @@ async def _upload(
         ) from exc
 
     if storage_backend() == "local":
-        image_url = (
-            str(request.base_url).rstrip("/")
-            + "api/v1/admin/uploads/files/"
-            + stored_value
-        )
+        # P4: prefer PUBLIC_UPLOAD_BASE_URL env var (production CDN / proxy).
+        # Fall back to a relative path so the browser resolves it against the
+        # Next.js origin, which proxies /uploads → FastAPI StaticFiles.
+        public_base = os.environ.get("PUBLIC_UPLOAD_BASE_URL", "").strip()
+        if public_base:
+            image_url = (
+                public_base.rstrip("/")
+                + "/uploads/"
+                + stored_value
+            )
+        else:
+            # Relative path — browser resolves against the page origin.
+            image_url = "/uploads/" + stored_value
     else:
         image_url = stored_value
 

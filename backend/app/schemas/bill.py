@@ -54,6 +54,11 @@ class BillItemRead(BaseModel):
     total_price: Decimal
     notes: Optional[str] = None
     selected_maids: List[BillItemMaidRead] = []
+    # Aggregated production status across all ProductionTasks for this item.
+    # Values: "pending" | "preparing" | "completed"
+    # None means no production tasks exist for this item (e.g. maid-service
+    # items whose station is 'none'); production tracking does not apply.
+    production_status: Optional[str] = None
 
 
 class BillDetailRead(BillRead):

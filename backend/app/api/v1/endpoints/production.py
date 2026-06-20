@@ -1,13 +1,13 @@
 from collections import defaultdict
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.time import utcnow
 from app.models.bill import Bill
-from app.models.enums import ProductionStation, ProductionStatus
+from app.models.enums import BillStatus, ProductionStation, ProductionStatus
 from app.models.menu import MenuItem
 from app.models.order import Order, OrderItem, ProductionTask
 from app.models.table import SessionTable, Table
@@ -78,6 +78,8 @@ def get_pickup_orders(db: Session = Depends(get_db)):
         .where(
             SessionTable.session_id == current_session.id,
             ProductionTask.picked_up_at.is_(None),
+            # Exclude tasks belonging to closed (paid or cancelled) bills.
+            Bill.status.not_in([BillStatus.paid, BillStatus.cancelled]),
         )
         .order_by(Order.created_at.asc(), ProductionTask.id.asc())
     ).all()
@@ -159,6 +161,22 @@ def mark_order_picked_up(
             detail="No production tasks found for this order.",
         )
 
+    # Guard: refuse to mutate tasks that belong to a closed bill.
+    # Fetch the bill via order_id → order → bill.
+    order_row = db.execute(
+        select(Order).where(Order.id == order_id)
+    ).scalars().first()
+    if order_row:
+        bill_row = db.get(Bill, order_row.bill_id)
+        if bill_row and bill_row.status in (BillStatus.paid, BillStatus.cancelled):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Cannot mark pickup: the bill for this order is already "
+                    f"{bill_row.status.value}."
+                ),
+            )
+
     unfinished = [
         task
         for task in tasks
@@ -178,7 +196,7 @@ def mark_order_picked_up(
             ),
         )
 
-    picked_up_at = datetime.utcnow()
+    picked_up_at = utcnow()
 
     for task in tasks:
         task.picked_up_at = picked_up_at
@@ -207,6 +225,10 @@ def get_production_queue(
         .where(
             SessionTable.session_id == current_session.id,
             ProductionTask.station == station,
+            # Exclude tasks belonging to closed (paid or cancelled) bills.
+            Bill.status.not_in([BillStatus.paid, BillStatus.cancelled]),
+            # Exclude tasks that have already been picked up by a runner.
+            ProductionTask.picked_up_at.is_(None),
         )
         .order_by(ProductionTask.created_at.asc(), ProductionTask.id.asc())
     )
@@ -241,6 +263,17 @@ def update_production_status(
 
     if not row:
         raise HTTPException(status_code=404, detail="Production task not found.")
+
+    # row indices: 0=task, 1=order_item, 2=order, 3=bill, 4=table, 5=menu_item
+    bill = row[3]
+    if bill.status in (BillStatus.paid, BillStatus.cancelled):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cannot update task status: the bill is already "
+                f"{bill.status.value}."
+            ),
+        )
 
     task = row[0]
     task.status = payload.production_status

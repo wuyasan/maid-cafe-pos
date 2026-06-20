@@ -7,6 +7,7 @@ from typing import List, Optional
 from sqlalchemy import DateTime, Enum, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.time import utcnow
 from app.models.base import Base
 from app.models.common import TimestampMixin
 from app.models.enums import BillStatus
@@ -51,10 +52,16 @@ class Bill(Base):
 
     opened_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=utcnow,
         nullable=False,
     )
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    checkout_total: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        default=None,
+    )
 
     session_table = relationship("SessionTable", back_populates="bills")
     orders = relationship("Order", back_populates="bill", cascade="all, delete-orphan")

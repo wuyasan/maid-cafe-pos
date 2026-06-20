@@ -79,18 +79,24 @@ struct StaffWebView: UIViewRepresentable {
             }
 
             /*
-             Square POS uses:
-             square-commerce-v1://
-
-             Opening it through UIApplication sends the
-             transaction to the Square Point of Sale app
-             installed on this same iPad.
+             Only hand off to UIApplication for explicitly allow-listed
+             external schemes. Square POS uses square-commerce-v1://;
+             opening it sends the transaction to the Square Point of Sale
+             app on this same iPad. Any other (unexpected) scheme is
+             rejected so a compromised or unexpected page cannot launch
+             arbitrary deep links from the cashier device.
              */
-            UIApplication.shared.open(
-                url,
-                options: [:],
-                completionHandler: nil
-            )
+            let allowedExternalSchemes: Set<String> = [
+                "square-commerce-v1"
+            ]
+
+            if allowedExternalSchemes.contains(scheme) {
+                UIApplication.shared.open(
+                    url,
+                    options: [:],
+                    completionHandler: nil
+                )
+            }
 
             decisionHandler(.cancel)
         }

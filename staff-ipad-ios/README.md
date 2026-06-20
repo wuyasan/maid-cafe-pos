@@ -30,7 +30,10 @@ Square Point of Sale manages the Reader pairing and payment.
 5. Target iPadOS 16 or newer.
 6. Add the files from `staff-ipad-ios/MaidCafeStaff/`.
 7. Add the keys from `Info.plist.snippet.xml` to the target Info settings.
-8. Change `AppConfig.staffDashboardURL`.
+8. Set the Staff Web URL via the `STAFF_DASHBOARD_URL` key in the target's Info.plist
+   (wire it to a `$(STAFF_DASHBOARD_URL)` xcconfig build setting, one value per
+   Debug/Release). `AppConfig.staffDashboardURL` reads that key at launch and falls
+   back to the local dev URL when it's unset. Use an `https://` URL in Release.
 9. Build and install on the iPad.
 
 ## iPad setup

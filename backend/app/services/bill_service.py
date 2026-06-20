@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.bill import Bill
-from app.models.enums import BillStatus
+from app.models.enums import BillStatus, SessionTableStatus
 from app.models.table import SessionTable, Table
 
 
@@ -37,6 +37,7 @@ def get_open_bill_for_session_table(db: Session, session_table_id: int) -> Bill 
 def get_or_create_open_bill(db: Session, session_table_id: int) -> Bill:
     bill = get_open_bill_for_session_table(db, session_table_id)
     if bill:
+        # Table is already occupied (or in a later state); no status change needed.
         return bill
 
     bill = Bill(
@@ -48,6 +49,12 @@ def get_or_create_open_bill(db: Session, session_table_id: int) -> Bill:
         total=Decimal("0.00"),
     )
     db.add(bill)
+
+    # Mark the table occupied as soon as a bill is opened for the first time.
+    session_table = db.get(SessionTable, session_table_id)
+    if session_table and session_table.status == SessionTableStatus.available:
+        session_table.status = SessionTableStatus.occupied
+
     db.flush()
     return bill
 
