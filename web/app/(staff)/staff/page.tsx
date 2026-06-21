@@ -1,15 +1,10 @@
 import { getTranslations, getLocale } from "next-intl/server";
 import Link from "next/link";
-import { getSession } from "@/lib/server/auth";
-import { visibleStaffViews } from "@/lib/staffViews";
+import { STAFF_VIEWS } from "@/lib/staffViews";
 
 export default async function StaffHomePage() {
   const t = await getTranslations("staff");
   const locale = (await getLocale()) as "en" | "zh";
-  // Gate the Admin tile to admins — same rule as the sidebar (StaffShell). Non-admins
-  // clicking Admin would be bounced to /login by proxy.ts, so we hide it here too.
-  const auth = await getSession();
-  const views = visibleStaffViews(auth?.role ?? null);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
@@ -27,7 +22,7 @@ export default async function StaffHomePage() {
         className="grid gap-4"
         style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
       >
-        {views.map((view) => (
+        {STAFF_VIEWS.map((view) => (
           <Link
             key={view.id}
             href={view.href}

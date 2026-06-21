@@ -5,7 +5,6 @@ from app.models.menu import MenuCategory, MenuItem, MaidServicePricing, MenuItem
 from app.models.order import Order, OrderItem, OrderItemMaid, ProductionTask
 from app.models.payment import Payment
 from app.models.session import Session
-from app.models.staff_user import StaffUser
 from app.models.table import Table, SessionTable
 
 __all__ = [
@@ -25,5 +24,4 @@ __all__ = [
     "OrderItemMaid",
     "ProductionTask",
     "Payment",
-    "StaffUser",
 ]

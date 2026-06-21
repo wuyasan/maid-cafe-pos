@@ -919,18 +919,6 @@ function BillView({
           <span>{t("subtotal")}</span>
           <span className="num" style={{ fontWeight: 600, color: "var(--foreground)" }}>{formatUSD(bill.subtotal)}</span>
         </div>
-        {bill.discount_type !== "none" && (
-          <div
-            style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--maid)", marginBottom: 9 }}
-            data-testid="customer-discount-row"
-          >
-            <span>
-              {t("discount")}
-              {bill.discount_note ? ` · ${bill.discount_note}` : ""}
-            </span>
-            <span className="num" style={{ fontWeight: 600 }}>−{formatUSD(bill.discount_amount)}</span>
-          </div>
-        )}
         <div
           style={{
             display: "flex",

@@ -1,15 +1,9 @@
 // Pure crypto helpers — NO server-only, NO next/* imports.
 // Safe for Edge runtime (middleware) and Node runtime (server components) and vitest.
 
-export type StaffRole = "staff" | "manager" | "admin";
-
 export type SessionPayload = {
-  /** Staff-user id. Optional for backward compatibility with legacy role-only cookies. */
-  uid?: number;
-  /** Login username. Optional for backward compatibility with legacy role-only cookies. */
-  username?: string;
+  role: "staff" | "admin";
   name: string;
-  role: StaffRole;
   iat: number;
   exp: number;
 };

@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { useState, useTransition, useSyncExternalStore } from "react";
 import { logoutAction } from "@/lib/server/actions/auth";
 import { isSoundEnabled, setSoundEnabled } from "@/lib/sound";
-import { visibleStaffViews } from "@/lib/staffViews";
-import type { SessionRead, StaffUserRole } from "@/lib/types";
+import { STAFF_VIEWS } from "@/lib/staffViews";
+import type { SessionRead } from "@/lib/types";
 
 // useSyncExternalStore subscriber for the sound localStorage key.
 // Re-subscribes on storage events so multi-tab changes are reflected.
@@ -17,8 +17,6 @@ function subscribeSoundPref(cb: () => void): () => void {
 
 interface StaffShellProps {
   session: SessionRead | null;
-  /** Authenticated user's role. The Admin entry is only rendered for admins. */
-  role?: StaffUserRole | null;
   children: React.ReactNode;
   /** Optional pending counts for production station badges (kitchen/bar/runner). */
   pendingCounts?: { kitchen?: number; bar?: number; runner?: number };
@@ -32,16 +30,11 @@ const SIDEBAR_WIDE = 198; // px — icon + label on md+
  * Layout: fixed left sidebar (198 px on md+, 60 px icon-only on sm) + scrollable
  * main content shifted by the same offset. Minimum tap target ≥ 44 px throughout.
  */
-export function StaffShell({ session, role = null, children, pendingCounts }: StaffShellProps) {
+export function StaffShell({ session, children, pendingCounts }: StaffShellProps) {
   const t = useTranslations("staff");
   const locale = useLocale() as "en" | "zh";
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
-
-  // Shared with the home tile grid: admin is included only for admins. The footer
-  // Admin link below renders iff the admin view survives this filter.
-  const views = visibleStaffViews(role);
-  const showAdmin = views.some((v) => v.id === "admin");
 
   // Sound toggle — use useSyncExternalStore to read localStorage (client-only) with a
   // stable server snapshot of `true` to avoid SSR/client hydration mismatch.
@@ -238,7 +231,7 @@ export function StaffShell({ session, role = null, children, pendingCounts }: St
 
           {/* ── Nav links ─────────────────────────────────── */}
           <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-1.5 py-1 md:px-2">
-            {views.map((view) => {
+            {STAFF_VIEWS.map((view) => {
               // Admin link is rendered in the footer section — skip here
               if (view.id === "admin") return null;
 
@@ -390,8 +383,7 @@ export function StaffShell({ session, role = null, children, pendingCounts }: St
               </div>
             </button>
 
-            {/* Admin link — admins only (proxy.ts blocks manager/staff at /admin) */}
-            {showAdmin ? (
+            {/* Admin link */}
             <Link
               href="/admin"
               className="staff-nav-item flex items-center transition-colors"
@@ -439,7 +431,6 @@ export function StaffShell({ session, role = null, children, pendingCounts }: St
                 {locale === "zh" ? "管理 Admin" : "Admin"}
               </span>
             </Link>
-            ) : null}
 
             {/* User / logout row */}
             <button

@@ -30,11 +30,6 @@ import os
 # only satisfies that import-time check.
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-# Disable the startup staff-user bootstrap during tests so the TestClient
-# lifespan never opens the real (non-test) DB session. Tests exercise
-# bootstrap_staff_users() directly against the in-memory test session instead.
-os.environ["ENABLE_STARTUP_BOOTSTRAP"] = "false"
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event

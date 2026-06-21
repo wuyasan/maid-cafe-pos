@@ -31,37 +31,6 @@ describe("signSession / verifySession", () => {
     expect(await verifySession("not.a.token.with.extra.dots", "test-secret")).toBeNull();
     expect(await verifySession("", "test-secret")).toBeNull();
   });
-
-  it("round-trips the full identity payload (uid, username, name, role)", async () => {
-    const now = Math.floor(Date.now() / 1000);
-    const payload = {
-      uid: 42,
-      username: "alice",
-      name: "Alice",
-      role: "manager" as const,
-      iat: now,
-      exp: now + 43200,
-    };
-    const token = await signSession(payload, "test-secret");
-    const result = await verifySession(token, "test-secret");
-    expect(result).toEqual(payload);
-    expect(result?.uid).toBe(42);
-    expect(result?.username).toBe("alice");
-    expect(result?.role).toBe("manager");
-  });
-
-  it("backward-compat: verifies a legacy role-only cookie without uid/username", async () => {
-    // A cookie minted by the old createSession (role + name only, no uid/username).
-    const now = Math.floor(Date.now() / 1000);
-    const legacy = { role: "admin" as const, name: "admin", iat: now, exp: now + 43200 };
-    const token = await signSession(legacy, "test-secret");
-    const result = await verifySession(token, "test-secret");
-    expect(result).not.toBeNull();
-    expect(result?.role).toBe("admin");
-    // Missing fields are simply absent — must not crash.
-    expect(result?.uid).toBeUndefined();
-    expect(result?.username).toBeUndefined();
-  });
 });
 
 describe("verifyPin", () => {
