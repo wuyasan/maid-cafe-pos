@@ -55,3 +55,9 @@ class StaffRole(str, enum.Enum):
     staff = "staff"
     manager = "manager"
     admin = "admin"
+
+
+class DiscountType(str, enum.Enum):
+    none = "none"
+    percent = "percent"
+    fixed = "fixed"

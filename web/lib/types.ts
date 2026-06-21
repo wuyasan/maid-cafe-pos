@@ -130,14 +130,28 @@ export interface BillItem {
   selected_maids: BillItemMaid[];
 }
 
+export type DiscountType = "none" | "percent" | "fixed";
+
 export interface BillDetail {
   id: number;
   status: string;
   subtotal: string;
+  // ── Discount (F15) ──────────────────────────────────────────────────────────
+  discount_type: DiscountType;
+  discount_value: string;   // percent (0–100) or fixed-dollar amount, as entered
+  discount_amount: string;  // computed dollar amount removed from subtotal
+  discount_note: string | null;
   tax: string;
   service_charge: string;
-  total: string;
+  total: string; // post-discount payable total
   items: BillItem[];
+}
+
+// ── Discount write payload (F15) ──────────────────────────────────────────────
+export interface DiscountApply {
+  type: "percent" | "fixed";
+  value: string;
+  note?: string;
 }
 
 export interface OrderLine {

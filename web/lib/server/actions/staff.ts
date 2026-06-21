@@ -1,5 +1,5 @@
 "use server";
-import { getSession } from "@/lib/server/auth";
+import { assertStaffAction, getSession } from "@/lib/server/auth";
 import { ApiError, api } from "@/lib/server/api-client";
 import type {
   StartCheckoutResponse,
@@ -7,7 +7,7 @@ import type {
   MarkPaidResponse,
   MarkPaidBody,
 } from "@/lib/server/api-client";
-import type { ProductionStatus } from "@/lib/types";
+import type { BillDetail, DiscountApply, ProductionStatus } from "@/lib/types";
 
 // All staff mutations return a result object (never throw) so the error detail
 // from FastAPI can cross the server-action boundary and be shown in the UI.
@@ -121,6 +121,49 @@ export async function cancelCheckout(
     return {
       ok: false,
       error: e instanceof ApiError ? e.message : "Could not cancel checkout",
+    };
+  }
+}
+
+// ─── Discount actions (F15) ──────────────────────────────────────────────────
+
+export type DiscountResult =
+  | { ok: true; data: BillDetail | null }
+  | { ok: false; error: string };
+
+/**
+ * Apply a percent or fixed discount to an open bill. Backend returns 422 for an
+ * invalid value (e.g. percent out of 0–100) and 409 if the bill is not open —
+ * those error details are surfaced verbatim for the UI.
+ */
+export async function applyDiscount(
+  tableCode: string,
+  body: DiscountApply,
+): Promise<DiscountResult> {
+  const s = await assertStaffAction();
+  if (!s) return { ok: false, error: "Unauthorized" };
+  try {
+    const data = await api.applyDiscount(tableCode, body);
+    return { ok: true, data };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof ApiError ? e.message : "Could not apply discount",
+    };
+  }
+}
+
+/** Remove any discount from an open bill. Backend returns 409 if not open. */
+export async function removeDiscount(tableCode: string): Promise<DiscountResult> {
+  const s = await assertStaffAction();
+  if (!s) return { ok: false, error: "Unauthorized" };
+  try {
+    const data = await api.removeDiscount(tableCode);
+    return { ok: true, data };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof ApiError ? e.message : "Could not remove discount",
     };
   }
 }

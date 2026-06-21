@@ -79,6 +79,8 @@ vi.mock("@/lib/server/actions/staff", () => ({
   startCheckout: (...args: unknown[]) => mockStartCheckout(...args),
   cancelCheckout: (...args: unknown[]) => mockCancelCheckout(...args),
   markPaid: (...args: unknown[]) => mockMarkPaid(...args),
+  applyDiscount: vi.fn(),
+  removeDiscount: vi.fn(),
 }));
 
 // ── Mock squarePos ────────────────────────────────────────────────────────────
@@ -120,6 +122,10 @@ const PAYING_BILL: BillDetail = {
   status: "paying",
   total: "25.50",
   subtotal: "25.50",
+  discount_type: "none",
+  discount_value: "0",
+  discount_amount: "0.00",
+  discount_note: null,
   tax: "0.00",
   service_charge: "0.00",
   items: [SAMPLE_ITEM],
@@ -229,6 +235,10 @@ describe("TableDetail — cancelCheckoutPending disables Square + Manual buttons
     status: "paying",
     total: "30.00",
     subtotal: "30.00",
+    discount_type: "none",
+    discount_value: "0",
+    discount_amount: "0.00",
+    discount_note: null,
     tax: "0.00",
     service_charge: "0.00",
     items: [SAMPLE_ITEM],

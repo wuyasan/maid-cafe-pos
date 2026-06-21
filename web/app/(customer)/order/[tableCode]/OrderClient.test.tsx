@@ -30,6 +30,7 @@ vi.mock("next-intl", () => ({
       "customer.statusCompleted": "Ready",
       "customer.subtotal": "Subtotal",
       "customer.total": "Total",
+      "customer.discount": "Discount",
       "customer.taxLine": "Tax",
       "customer.placeOrder": "Place Order",
       "customer.loading": "Loading…",
@@ -60,6 +61,10 @@ const initialBill: BillDetail = {
   id: 1,
   status: "open",
   subtotal: "12.00",
+  discount_type: "none",
+  discount_value: "0",
+  discount_amount: "0.00",
+  discount_note: null,
   total: "12.00",
   tax: "0.00",
   service_charge: "0.00",
@@ -140,5 +145,57 @@ describe("OrderClient — hasFetched bill fallback", () => {
     await waitFor(() => {
       expect(screen.getByText("Your bill is settled — thank you!")).toBeTruthy();
     });
+  });
+});
+
+describe("OrderClient — discount display (F15)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows a read-only discount row with note + amount when the bill is discounted", () => {
+    // Keep the SSR bill (fetcher never resolves) so we render initialBill directly.
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+
+    const discountedBill: BillDetail = {
+      ...initialBill,
+      discount_type: "percent",
+      discount_value: "10",
+      discount_amount: "1.20",
+      discount_note: "regular",
+      total: "10.80",
+    };
+
+    render(
+      <OrderClient
+        tableCode="T1"
+        items={[]}
+        categories={[]}
+        maids={[]}
+        initialBill={discountedBill}
+        source="qr"
+      />,
+    );
+
+    const row = screen.getByTestId("customer-discount-row");
+    expect(row).toBeTruthy();
+    expect(row.textContent).toContain("Discount");
+    expect(row.textContent).toContain("regular");
+    expect(row.textContent).toContain("−$1.20");
+  });
+
+  it("does NOT show a discount row when the bill has no discount", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    render(
+      <OrderClient
+        tableCode="T1"
+        items={[]}
+        categories={[]}
+        maids={[]}
+        initialBill={initialBill}
+        source="qr"
+      />,
+    );
+    expect(screen.queryByTestId("customer-discount-row")).toBeNull();
   });
 });

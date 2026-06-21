@@ -72,6 +72,7 @@ export interface MarkPaidResponse {
   payment_id: number;
 }
 import {
+  normalizeBill,
   normalizeSessionMaids,
   normalizeStaffTables,
   unwrapSession,
@@ -80,6 +81,7 @@ import {
   type StaffTablesApi,
 } from "@/lib/normalize";
 import type {
+  DiscountApply,
   StaffAuthUser,
   StaffUserAdmin,
   StaffUserCreate,
@@ -256,9 +258,11 @@ export const api = {
       tags: ["maids", `session:${sessionId}`],
     }).then(normalizeSessionMaids),
 
-  // Live (never cached)
+  // Live (never cached). Normalize so discount fields are always present.
   getTableBill: (tableCode: string) =>
-    getLive<BillDetail | null>(`/customer-orders/customer/table/${tableCode}/bill`),
+    getLive<BillDetail | null>(`/customer-orders/customer/table/${tableCode}/bill`).then(
+      normalizeBill,
+    ),
 
   // Staff live reads (no-store — polled by kitchen/runner/floor screens)
   getStaffTables: (): Promise<StaffTablesResult> =>
@@ -299,6 +303,20 @@ export const api = {
       `/staff/table/${encodeURIComponent(tableCode)}/mark-paid`,
       body ?? {},
     ),
+
+  // ── Discount (F15) — staff writes; return the (re-computed) bill, normalized.
+  applyDiscount: (tableCode: string, body: DiscountApply, actor?: Actor | null) =>
+    postJson<BillDetail | null>(
+      `/staff/table/${encodeURIComponent(tableCode)}/discount`,
+      body,
+      actor,
+    ).then(normalizeBill),
+
+  removeDiscount: (tableCode: string, actor?: Actor | null) =>
+    deleteReq<BillDetail | null>(
+      `/staff/table/${encodeURIComponent(tableCode)}/discount`,
+      actor,
+    ).then(normalizeBill),
 
   // Admin session reads (no-store — admin needs immediate consistency)
   getSessions: () => getLive<SessionRead[]>("/sessions"),
