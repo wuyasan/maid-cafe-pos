@@ -12,7 +12,7 @@ from sqlalchemy import String
 from app.core.time import utcnow
 from app.models.base import Base
 from app.models.common import TimestampMixin
-from app.models.enums import BillStatus, DiscountType
+from app.models.enums import BillStatus, DiscountType, TipType
 
 
 class Bill(Base):
@@ -73,6 +73,27 @@ class Bill(Base):
         nullable=True,
     )
     discounted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    tip_type: Mapped[TipType] = mapped_column(
+        Enum(TipType, name="tip_type"),
+        default=TipType.none,
+        nullable=False,
+    )
+    tip_value: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        default=Decimal("0.00"),
+        nullable=False,
+    )
+    tip_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        default=Decimal("0.00"),
+        nullable=False,
+    )
+    tipped_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("staff_users.id"),
+        nullable=True,
+    )
+    tipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     opened_at: Mapped[datetime] = mapped_column(
         DateTime,

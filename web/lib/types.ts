@@ -133,6 +133,7 @@ export interface BillItem {
 }
 
 export type DiscountType = "none" | "percent" | "fixed";
+export type TipType = "none" | "percent" | "fixed";
 
 export interface BillDetail {
   id: number;
@@ -143,9 +144,13 @@ export interface BillDetail {
   discount_value: string;   // percent (0–100) or fixed-dollar amount, as entered
   discount_amount: string;  // computed dollar amount removed from subtotal
   discount_note: string | null;
+  // ── Tip (F16) ────────────────────────────────────────────────────────────────
+  tip_type: TipType;
+  tip_value: string;   // percent (0–100) or fixed-dollar amount, as entered
+  tip_amount: string;  // computed dollar amount added to the bill
   tax: string;
   service_charge: string;
-  total: string; // post-discount payable total
+  total: string; // post-discount, tip-inclusive payable total
   items: BillItem[];
 }
 
@@ -154,6 +159,12 @@ export interface DiscountApply {
   type: "percent" | "fixed";
   value: string;
   note?: string;
+}
+
+// ── Tip write payload (F16) ───────────────────────────────────────────────────
+export interface TipApply {
+  type: "percent" | "fixed";
+  value: number;
 }
 
 export interface OrderLine {

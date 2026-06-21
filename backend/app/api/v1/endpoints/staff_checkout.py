@@ -15,12 +15,14 @@ from app.models.enums import (
     DiscountType,
     PaymentStatus,
     SessionTableStatus,
+    TipType,
 )
 from app.models.payment import Payment
 from app.models.maid import Maid
 from app.models.menu import MenuItem, MenuItemComponent
 from app.models.order import Order, OrderItem, OrderItemMaid
 from app.models.session import Session as SessionModel
+from app.models.staff_user import StaffUser
 from app.models.table import SessionTable, Table
 from app.schemas.staff import (
     SessionSummaryItem,
@@ -30,7 +32,11 @@ from app.schemas.staff import (
     SessionSummaryResponse,
 )
 from app.schemas.table import SessionTableListResponse, SessionTableSummary
-from app.services.bill_service import recalculate_bill_totals
+from app.services.bill_service import (
+    MAX_MONEY,
+    TotalOverflowError,
+    recalculate_bill_totals,
+)
 from app.services.session_service import get_current_active_session
 from app.services.square_verification import verify_square_payment
 
@@ -83,6 +89,16 @@ def get_open_or_paying_bill_for_session_table(
         .scalars()
         .first()
     )
+
+
+def actor_id_or_none(db: Session, x_actor_id: Optional[str]) -> Optional[int]:
+    if x_actor_id is None:
+        return None
+    try:
+        actor_id = int(x_actor_id)
+    except (TypeError, ValueError):
+        return None
+    return actor_id if db.get(StaffUser, actor_id) is not None else None
 
 
 @router.get("/tables", response_model=SessionTableListResponse)
@@ -739,6 +755,7 @@ def mark_paid(
         provider_payment_id=given_provider_id,
         idempotency_key=given_idempotency_key,
         amount=payment_amount,
+        tip_amount=bill.tip_amount,
         status=PaymentStatus.completed,
         paid_at=now,
     )
@@ -920,6 +937,9 @@ def _bill_discount_response(table_code: str, bill: Bill) -> dict:
         "discount_value": str(bill.discount_value),
         "discount_amount": str(bill.discount_amount),
         "discount_note": bill.discount_note,
+        "tip_type": bill.tip_type.value,
+        "tip_value": str(bill.tip_value),
+        "tip_amount": str(bill.tip_amount),
         "total": str(bill.total),
     }
 
@@ -988,17 +1008,21 @@ def apply_bill_discount(
     bill.discount_value = Decimal(value)
     bill.discount_note = payload.note
 
-    actor_id: Optional[int] = None
-    if x_actor_id is not None:
-        try:
-            actor_id = int(x_actor_id)
-        except (TypeError, ValueError):
-            actor_id = None
-    bill.discounted_by = actor_id
+    bill.discounted_by = actor_id_or_none(db, x_actor_id)
     bill.discounted_at = utcnow()
 
     # Recompute via the single source of truth so percent stays correct.
-    recalculate_bill_totals(bill)
+    try:
+        recalculate_bill_totals(bill)
+    except TotalOverflowError:
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Resulting bill total would exceed the maximum allowed value "
+                "(99999999.99)."
+            ),
+        )
 
     db.commit()
     db.refresh(bill)
@@ -1038,9 +1062,188 @@ def remove_bill_discount(
     bill.discounted_by = None
     bill.discounted_at = None
 
-    recalculate_bill_totals(bill)
+    try:
+        recalculate_bill_totals(bill)
+    except TotalOverflowError:
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Resulting bill total would exceed the maximum allowed value "
+                "(99999999.99)."
+            ),
+        )
 
     db.commit()
     db.refresh(bill)
 
     return _bill_discount_response(table_code, bill)
+
+
+# --------------------------------------------------------------------------- #
+# Bill tip (F16)
+# --------------------------------------------------------------------------- #
+
+
+class ApplyTipRequest(BaseModel):
+    type: str  # "percent" | "fixed"
+    value: Decimal
+
+
+def _bill_tip_response(table_code: str, bill: Bill) -> dict:
+    return {
+        "success": True,
+        "table_code": table_code,
+        "bill_id": bill.id,
+        "bill_status": bill.status,
+        "subtotal": str(bill.subtotal),
+        "discount_type": bill.discount_type.value,
+        "discount_value": str(bill.discount_value),
+        "discount_amount": str(bill.discount_amount),
+        "tip_type": bill.tip_type.value,
+        "tip_value": str(bill.tip_value),
+        "tip_amount": str(bill.tip_amount),
+        "total": str(bill.total),
+    }
+
+
+@router.post("/table/{table_code}/tip")
+def apply_bill_tip(
+    table_code: str,
+    payload: ApplyTipRequest,
+    db: Session = Depends(get_db),
+    x_actor_id: Optional[str] = Header(default=None, alias="X-Actor-Id"),
+):
+    """Apply a whole-bill tip. Only allowed while the bill is open.
+
+    Tip is an ADD-ON (not clamped like a discount):
+      - percent base = discounted amount (subtotal - discount_amount)
+      - fixed = the entered value, added on top
+
+    Validation (422 on failure):
+      - type must be "percent" or "fixed"
+      - value must be a number; percent in [0, 100]; fixed in [0, 99999999.99]
+      - if the resulting tip_amount or total would exceed 99999999.99 -> 422
+        (guards against Numeric(10, 2) overflow / 500)
+
+    Returns 409 if the bill is not in the 'open' state.
+    There is no note field for tips.
+    """
+    # Validate type.
+    if payload.type not in (TipType.percent.value, TipType.fixed.value):
+        raise HTTPException(
+            status_code=422,
+            detail="type must be 'percent' or 'fixed'.",
+        )
+
+    value = payload.value
+    if value is None:
+        raise HTTPException(status_code=422, detail="value is required.")
+
+    # Range checks.
+    if payload.type == TipType.percent.value:
+        if value < 0 or value > 100:
+            raise HTTPException(
+                status_code=422,
+                detail="percent tip value must be between 0 and 100.",
+            )
+    else:  # fixed
+        if value < 0 or value > MAX_MONEY:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "fixed tip value must be between 0 and 99999999.99."
+                ),
+            )
+
+    _current_session, session_table, _table = (
+        get_current_session_table_by_code(db, table_code)
+    )
+
+    bill = get_open_or_paying_bill_for_session_table(db, session_table.id)
+    if not bill:
+        raise HTTPException(
+            status_code=404,
+            detail="No open bill found for this table.",
+        )
+
+    if bill.status != BillStatus.open:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Tip can only be changed while the bill is open. "
+                f"Current status: {bill.status.value}."
+            ),
+        )
+
+    # Stash previous tip so we can roll back if the recompute overflows.
+    prev_type = bill.tip_type
+    prev_value = bill.tip_value
+    prev_by = bill.tipped_by
+    prev_at = bill.tipped_at
+
+    bill.tip_type = TipType(payload.type)
+    bill.tip_value = Decimal(value)
+    bill.tipped_by = actor_id_or_none(db, x_actor_id)
+    bill.tipped_at = utcnow()
+
+    # Recompute via the single source of truth. Catch overflow BEFORE any write
+    # so an oversized total never reaches the DB (which would 500).
+    try:
+        recalculate_bill_totals(bill)
+    except TotalOverflowError:
+        bill.tip_type = prev_type
+        bill.tip_value = prev_value
+        bill.tipped_by = prev_by
+        bill.tipped_at = prev_at
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Resulting bill total would exceed the maximum allowed value "
+                "(99999999.99)."
+            ),
+        )
+
+    db.commit()
+    db.refresh(bill)
+
+    return _bill_tip_response(table_code, bill)
+
+
+@router.delete("/table/{table_code}/tip")
+def remove_bill_tip(
+    table_code: str,
+    db: Session = Depends(get_db),
+):
+    """Remove any tip from the bill. Only allowed while the bill is open."""
+    _current_session, session_table, _table = (
+        get_current_session_table_by_code(db, table_code)
+    )
+
+    bill = get_open_or_paying_bill_for_session_table(db, session_table.id)
+    if not bill:
+        raise HTTPException(
+            status_code=404,
+            detail="No open bill found for this table.",
+        )
+
+    if bill.status != BillStatus.open:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Tip can only be changed while the bill is open. "
+                f"Current status: {bill.status.value}."
+            ),
+        )
+
+    bill.tip_type = TipType.none
+    bill.tip_value = Decimal("0.00")
+    bill.tipped_by = None
+    bill.tipped_at = None
+
+    recalculate_bill_totals(bill)
+
+    db.commit()
+    db.refresh(bill)
+
+    return _bill_tip_response(table_code, bill)

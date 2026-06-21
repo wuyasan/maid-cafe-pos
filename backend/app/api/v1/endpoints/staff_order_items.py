@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.models.bill import Bill
 from app.models.enums import BillStatus
 from app.models.order import Order, OrderItem
-from app.services.bill_service import apply_discount_to_bill
+from app.services.bill_service import TotalOverflowError, apply_discount_to_bill
 
 router = APIRouter(
     prefix="/staff/order-items",
@@ -152,8 +152,18 @@ def update_order_item_quantity(
                 int(new_task_quantity.to_integral_value()),
             )
 
-    db.flush()
-    _recalculate_bill(db, bill)
+    try:
+        db.flush()
+        _recalculate_bill(db, bill)
+    except TotalOverflowError:
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Resulting bill total would exceed the maximum allowed value "
+                "(99999999.99)."
+            ),
+        )
     db.commit()
     db.refresh(order_item)
     db.refresh(bill)

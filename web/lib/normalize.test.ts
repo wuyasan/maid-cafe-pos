@@ -57,9 +57,12 @@ describe("normalizeBill", () => {
     discount_value: "10",
     discount_amount: "2.00",
     discount_note: "regular",
+    tip_type: "fixed",
+    tip_value: "3",
+    tip_amount: "3.00",
     tax: "0.00",
     service_charge: "0.00",
-    total: "18.00",
+    total: "21.00",
     items: [],
   };
 
@@ -69,7 +72,14 @@ describe("normalizeBill", () => {
     expect(out.discount_value).toBe("10");
     expect(out.discount_amount).toBe("2.00");
     expect(out.discount_note).toBe("regular");
-    expect(out.total).toBe("18.00");
+    expect(out.total).toBe("21.00");
+  });
+
+  it("passes through a fully-populated tipped bill", () => {
+    const out = normalizeBill(fullBill)!;
+    expect(out.tip_type).toBe("fixed");
+    expect(out.tip_value).toBe("3");
+    expect(out.tip_amount).toBe("3.00");
   });
 
   it("returns null when the bill is null", () => {
@@ -94,6 +104,27 @@ describe("normalizeBill", () => {
     expect(out.discount_note).toBeNull();
     expect(out.subtotal).toBe("15.00");
     expect(out.total).toBe("15.00");
+  });
+
+  it("defaults missing tip fields to a no-tip shape", () => {
+    const raw = {
+      id: 3,
+      status: "open",
+      subtotal: "15.00",
+      total: "15.00",
+      tax: "0.00",
+      service_charge: "0.00",
+      items: [],
+    } as unknown as BillDetail;
+    const out = normalizeBill(raw)!;
+    expect(out.tip_type).toBe("none");
+    expect(out.tip_value).toBe("0");
+    expect(out.tip_amount).toBe("0.00");
+  });
+
+  it("coerces an unknown/invalid tip_type to 'none'", () => {
+    const raw = { ...fullBill, tip_type: "weird" as unknown as BillDetail["tip_type"] };
+    expect(normalizeBill(raw)!.tip_type).toBe("none");
   });
 
   it("coerces an unknown/invalid discount_type to 'none'", () => {

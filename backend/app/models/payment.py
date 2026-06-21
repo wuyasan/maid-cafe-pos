@@ -21,6 +21,12 @@ class Payment(Base):
 
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
 
+    tip_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        default=Decimal("0.00"),
+        nullable=False,
+    )
+
     provider: Mapped[str] = mapped_column(String(50), default="square", nullable=False)
     provider_payment_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

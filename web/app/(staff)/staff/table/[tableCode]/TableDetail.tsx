@@ -14,6 +14,8 @@ import {
   markPaid,
   applyDiscount,
   removeDiscount,
+  applyTip,
+  removeTip,
 } from "@/lib/server/actions/staff";
 import { formatUSD } from "@/lib/money";
 import {
@@ -44,6 +46,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   const t = useTranslations("staff");
   const tPay = useTranslations("payment");
   const tDisc = useTranslations("payment.discount");
+  const tTip = useTranslations("payment.tip");
   const pathname = usePathname();
 
   // Poll via /api/staff/table/[code]/bill to keep bill live.
@@ -254,10 +257,66 @@ export function TableDetail({ tableCode, initialBill }: Props) {
     }
   }
 
+  // ─── Tip state (F16) ─────────────────────────────────────────────────────────
+  const [tipModalOpen, setTipModalOpen] = useState(false);
+  const [tipPending, setTipPending] = useState(false);
+  const [tipError, setTipError] = useState<string | null>(null);
+
+  /** Map a backend tip error to a friendly message (409 not-open / 422 invalid). */
+  function tipErrorMessage(raw: string, fallback: string): string {
+    const lower = raw.toLowerCase();
+    if (lower.includes("not open") || lower.includes("open") || lower.includes("409")) {
+      return tTip("errorNotOpen");
+    }
+    if (lower.includes("invalid") || lower.includes("value") || lower.includes("422")) {
+      return tTip("errorInvalid");
+    }
+    return raw || fallback;
+  }
+
+  async function handleApplyTip(payload: { type: "percent" | "fixed"; value: number }) {
+    if (tipPending) return;
+    setTipError(null);
+    setTipPending(true);
+    try {
+      const res = await applyTip(tableCode, payload);
+      if (!res.ok) {
+        setTipError(tipErrorMessage(res.error, tTip("applyFailed")));
+        return;
+      }
+      setTipModalOpen(false);
+      refetch();
+    } finally {
+      setTipPending(false);
+    }
+  }
+
+  async function handleRemoveTip() {
+    if (tipPending) return;
+    const confirmed = await confirm({
+      title: tTip("confirmRemoveTitle"),
+      description: tTip("confirmRemoveDesc"),
+    });
+    if (!confirmed) return;
+    setTipError(null);
+    setTipPending(true);
+    try {
+      const res = await removeTip(tableCode);
+      if (!res.ok) {
+        setTipError(tipErrorMessage(res.error, tTip("removeFailed")));
+        return;
+      }
+      refetch();
+    } finally {
+      setTipPending(false);
+    }
+  }
+
   const billPaid = bill?.status === "paid";
   const billPaying = bill?.status === "paying";
   const billOpen = bill?.status === "open";
   const hasDiscount = (bill?.discount_type ?? "none") !== "none";
+  const hasTip = (bill?.tip_type ?? "none") !== "none";
   // If poller has fetched at least once and bill is null, the table has been cleared/released.
   const isCleared = hasFetched && !bill;
   const statusKey = isCleared ? "cleared" : (bill?.status ?? "open");
@@ -277,6 +336,18 @@ export function TableDetail({ tableCode, initialBill }: Props) {
         onCancel={() => setDiscountModalOpen(false)}
         onApply={handleApplyDiscount}
         tDisc={tDisc}
+      />
+    )}
+    {tipModalOpen && bill && (
+      <TipModal
+        subtotal={bill.subtotal}
+        initialType={hasTip && bill.tip_type !== "none" ? bill.tip_type : "percent"}
+        initialValue={hasTip ? bill.tip_value : ""}
+        pending={tipPending}
+        confirm={confirm}
+        onCancel={() => setTipModalOpen(false)}
+        onApply={handleApplyTip}
+        tTip={tTip}
       />
     )}
     <div
@@ -461,14 +532,29 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                   </div>
                 )}
 
+                {/* Tip line (only when tipped) — between discount and total */}
+                {hasTip && (
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}
+                    data-testid="tip-row"
+                  >
+                    <span style={{ fontSize: 13, color: "var(--cooking)" }}>
+                      {tTip("label")}
+                    </span>
+                    <span className="num" style={{ fontWeight: 600, fontSize: 14, color: "var(--cooking)" }}>
+                      +{formatUSD(bill.tip_amount)}
+                    </span>
+                  </div>
+                )}
+
                 {/* Total */}
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "baseline",
-                    borderTop: hasDiscount ? "1px solid rgba(58,42,48,0.06)" : "none",
-                    paddingTop: hasDiscount ? 8 : 0,
+                    borderTop: hasDiscount || hasTip ? "1px solid rgba(58,42,48,0.06)" : "none",
+                    paddingTop: hasDiscount || hasTip ? 8 : 0,
                   }}
                 >
                   <span
@@ -552,6 +638,70 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                         }}
                       >
                         {discountPending ? tDisc("removing") : tDisc("remove")}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Tip controls (open bills only) */}
+                {tipError && (
+                  <div
+                    style={{
+                      background: "#fef2f2",
+                      borderRadius: 10,
+                      padding: "8px 11px",
+                      fontSize: 12,
+                      color: "#b91c1c",
+                    }}
+                  >
+                    {tipError}
+                  </div>
+                )}
+                {billOpen && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTipError(null);
+                        setTipModalOpen(true);
+                      }}
+                      disabled={tipPending}
+                      style={{
+                        flex: 1,
+                        border: "1.5px solid rgba(214,154,78,0.4)",
+                        background: "transparent",
+                        color: tipPending ? "var(--muted)" : "var(--cooking)",
+                        borderRadius: 12,
+                        padding: "10px",
+                        fontWeight: 600,
+                        fontSize: 12.5,
+                        cursor: tipPending ? "not-allowed" : "pointer",
+                        opacity: tipPending ? 0.7 : 1,
+                        minHeight: "var(--tap-min)",
+                      }}
+                    >
+                      {hasTip ? tTip("edit") : tTip("apply")}
+                    </button>
+                    {hasTip && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveTip()}
+                        disabled={tipPending}
+                        style={{
+                          flex: 1,
+                          border: "1.5px solid rgba(58,42,48,0.14)",
+                          background: "transparent",
+                          color: tipPending ? "var(--muted)" : "#C9486A",
+                          borderRadius: 12,
+                          padding: "10px",
+                          fontWeight: 600,
+                          fontSize: 12.5,
+                          cursor: tipPending ? "not-allowed" : "pointer",
+                          opacity: tipPending ? 0.7 : 1,
+                          minHeight: "var(--tap-min)",
+                        }}
+                      >
+                        {tipPending ? tTip("removing") : tTip("remove")}
                       </button>
                     )}
                   </div>
@@ -1191,6 +1341,241 @@ function DiscountModal({
             }}
           >
             {pending ? tDisc("applying") : tDisc("save")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Tip modal (F16) ────────────────────────────────────────────────────────────
+
+const TIP_FIXED_MAX = 99999999.99;
+
+function TipModal({
+  subtotal,
+  initialType,
+  initialValue,
+  pending,
+  confirm,
+  onCancel,
+  onApply,
+  tTip,
+}: {
+  subtotal: string;
+  initialType: "percent" | "fixed";
+  initialValue: string;
+  pending: boolean;
+  confirm: ConfirmFn;
+  onCancel: () => void;
+  onApply: (payload: { type: "percent" | "fixed"; value: number }) => void;
+  tTip: ReturnType<typeof useTranslations>;
+}) {
+  const [type, setType] = useState<"percent" | "fixed">(initialType);
+  const [value, setValue] = useState<string>(initialValue);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const numericValue = Number(value);
+  const subtotalNum = Number(subtotal);
+
+  /** Validate the entered value for the active type. Returns null if valid. */
+  function validate(): string | null {
+    if (value.trim() === "" || !Number.isFinite(numericValue)) {
+      return type === "percent" ? tTip("invalidPercent") : tTip("invalidFixed");
+    }
+    if (type === "percent") {
+      if (numericValue < 0 || numericValue > 100) return tTip("invalidPercent");
+    } else {
+      if (numericValue < 0 || numericValue > TIP_FIXED_MAX) return tTip("invalidFixed");
+    }
+    return null;
+  }
+
+  // Estimated dollar amount added, for the confirm dialog copy.
+  const estimatedAmount =
+    type === "percent"
+      ? (Number.isFinite(subtotalNum) ? (subtotalNum * numericValue) / 100 : 0)
+      : numericValue;
+
+  async function handleSubmit() {
+    if (pending) return;
+    const err = validate();
+    if (err) {
+      setLocalError(err);
+      return;
+    }
+    setLocalError(null);
+    const confirmed = await confirm({
+      title: tTip("confirmTitle"),
+      description:
+        type === "percent"
+          ? tTip("confirmDescPercent", { value: numericValue, amount: formatUSD(estimatedAmount) })
+          : tTip("confirmDescFixed", { amount: formatUSD(estimatedAmount) }),
+    });
+    if (!confirmed) return;
+    onApply({ type, value: numericValue });
+  }
+
+  return (
+    <div
+      role="presentation"
+      onClick={onCancel}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 900,
+        background: "rgba(35,25,29,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "0 22px",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={tTip("modalTitle")}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff",
+          borderRadius: 20,
+          padding: "22px 20px",
+          width: "100%",
+          maxWidth: 380,
+          boxShadow: "0 16px 44px -12px rgba(58,42,48,0.32)",
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "var(--font-display-stack)",
+            fontWeight: 700,
+            fontSize: 17,
+            color: "var(--foreground)",
+            marginBottom: 16,
+          }}
+        >
+          {tTip("modalTitle")}
+        </div>
+
+        {/* Type toggle */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          {(["percent", "fixed"] as const).map((k) => {
+            const active = type === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => {
+                  setType(k);
+                  setLocalError(null);
+                }}
+                aria-pressed={active}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  borderRadius: 12,
+                  border: active ? "1.5px solid var(--cooking)" : "1.5px solid rgba(58,42,48,0.14)",
+                  background: active ? "rgba(214,154,78,0.1)" : "transparent",
+                  color: active ? "var(--cooking)" : "var(--muted)",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {k === "percent" ? tTip("typePercent") : tTip("typeFixed")}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Value input */}
+        <label
+          htmlFor="tip-value"
+          style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 6 }}
+        >
+          {tTip("valueLabel")}
+        </label>
+        <input
+          id="tip-value"
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={type === "percent" ? 100 : TIP_FIXED_MAX}
+          step={type === "percent" ? 1 : 0.01}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setLocalError(null);
+          }}
+          placeholder={type === "percent" ? tTip("valuePercentPlaceholder") : tTip("valueFixedPlaceholder")}
+          style={{
+            width: "100%",
+            border: "1.5px solid rgba(58,42,48,0.14)",
+            borderRadius: 12,
+            padding: "12px 14px",
+            fontSize: 15,
+            fontFamily: "var(--font-num-stack)",
+            color: "var(--foreground)",
+            background: "var(--background)",
+            outline: "none",
+            boxSizing: "border-box",
+            marginBottom: 14,
+          }}
+        />
+
+        {localError && (
+          <div
+            style={{
+              background: "#fef2f2",
+              borderRadius: 10,
+              padding: "8px 11px",
+              fontSize: 12,
+              color: "#b91c1c",
+              marginBottom: 12,
+            }}
+          >
+            {localError}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              border: "1.5px solid rgba(58,42,48,0.14)",
+              background: "transparent",
+              color: "var(--muted)",
+              borderRadius: 12,
+              padding: "12px",
+              fontWeight: 600,
+              fontSize: 14,
+              cursor: "pointer",
+            }}
+          >
+            {tTip("cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={pending}
+            style={{
+              flex: 2,
+              border: "none",
+              background: "var(--cooking)",
+              color: "#fff",
+              borderRadius: 12,
+              padding: "12px",
+              fontFamily: "var(--font-display-stack)",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: pending ? "not-allowed" : "pointer",
+              opacity: pending ? 0.7 : 1,
+            }}
+          >
+            {pending ? tTip("applying") : tTip("save")}
           </button>
         </div>
       </div>

@@ -958,6 +958,15 @@ function BillView({
             <span className="num" style={{ fontWeight: 600 }}>−{formatUSD(bill.discount_amount)}</span>
           </div>
         )}
+        {bill.tip_type !== "none" && (
+          <div
+            style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--cooking)", marginBottom: 9 }}
+            data-testid="customer-tip-row"
+          >
+            <span>{t("tip")}</span>
+            <span className="num" style={{ fontWeight: 600 }}>+{formatUSD(bill.tip_amount)}</span>
+          </div>
+        )}
         <div
           style={{
             display: "flex",
