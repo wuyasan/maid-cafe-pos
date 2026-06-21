@@ -1260,7 +1260,7 @@ function MaidPicker({
               <div style={{ height: 112, background: m.photoUrl ? undefined : grad, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {m.photoUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.photoUrl} alt={m.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <img src={m.photoUrl} alt={m.name} style={{ width: "100%", height: 220, objectFit: "contain" }} />
                 )}
               </div>
               {/* Check indicator */}
