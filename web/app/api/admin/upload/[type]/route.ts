@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/server/auth";
 
 const BASE = process.env.API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
-const TOKEN = process.env.INTERNAL_GATEWAY_TOKEN;
+const TOKEN = process.env.INTERNAL_GATEWAY_TOKEN?.trim() || undefined;
 
 const ALLOWED_TYPES = new Set(["menu-image", "maid-image"]);
 

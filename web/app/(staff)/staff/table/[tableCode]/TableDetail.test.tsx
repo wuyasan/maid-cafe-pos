@@ -8,7 +8,7 @@
  * 4. On 409 / payment-exists error → shows the "verify in Square" message (does NOT force-unfreeze).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 
 // ── Mock next-intl ────────────────────────────────────────────────────────────
 vi.mock("next-intl", () => ({
@@ -79,6 +79,8 @@ vi.mock("@/lib/server/actions/staff", () => ({
   startCheckout: (...args: unknown[]) => mockStartCheckout(...args),
   cancelCheckout: (...args: unknown[]) => mockCancelCheckout(...args),
   markPaid: (...args: unknown[]) => mockMarkPaid(...args),
+  applyDiscount: vi.fn(),
+  removeDiscount: vi.fn(),
 }));
 
 // ── Mock squarePos ────────────────────────────────────────────────────────────
@@ -120,6 +122,10 @@ const PAYING_BILL: BillDetail = {
   status: "paying",
   total: "25.50",
   subtotal: "25.50",
+  discount_type: "none",
+  discount_value: "0",
+  discount_amount: "0.00",
+  discount_note: null,
   tax: "0.00",
   service_charge: "0.00",
   items: [SAMPLE_ITEM],
@@ -215,5 +221,106 @@ describe("TableDetail — paying status cancel checkout", () => {
 
     // clearPendingCheckout must NOT be called — we do not force-unfreeze
     expect(mockClearPendingCheckout).not.toHaveBeenCalled();
+  });
+});
+
+
+// ── New: cancelCheckoutPending guard for Square + Manual buttons ──────────────
+describe("TableDetail — cancelCheckoutPending disables Square + Manual buttons", () => {
+  // A "paying" bill — the cancel button is visible which is how we trigger
+  // cancelCheckoutPending=true (by clicking cancel, confirming, and having
+  // cancelCheckout hang so the pending state persists).
+  const PAYING_BILL_LOCAL: BillDetail = {
+    id: 99,
+    status: "paying",
+    total: "30.00",
+    subtotal: "30.00",
+    discount_type: "none",
+    discount_value: "0",
+    discount_amount: "0.00",
+    discount_note: null,
+    tax: "0.00",
+    service_charge: "0.00",
+    items: [SAMPLE_ITEM],
+  };
+
+  it("Square + Manual buttons are disabled and no-op while cancelCheckoutPending is true", async () => {
+    // cancelCheckout hangs → setCancelCheckoutPending(true) stays true
+    let resolveCancel!: (v: unknown) => void;
+    mockCancelCheckout.mockReturnValue(new Promise((res) => { resolveCancel = res; }));
+    mockConfirm.mockResolvedValue(true); // user confirms cancel
+
+    render(<TableDetail tableCode="T1" initialBill={PAYING_BILL_LOCAL} />);
+
+    // Trigger cancel — after confirm it sets cancelCheckoutPending=true and awaits
+    const cancelBtn = screen.getByText("Cancel checkout & restore bill");
+    fireEvent.click(cancelBtn);
+
+    // Wait for confirm to be called and the handler to enter pending state
+    await waitFor(() => expect(mockCancelCheckout).toHaveBeenCalled());
+
+    // At this point cancelCheckoutPending should be true.
+    // The Square and Manual buttons should be disabled.
+    const squareBtn = screen.getByText("Charge with Square").closest("button")!;
+    const manualBtn = screen.getByText("Mark as paid").closest("button")!;
+
+    expect(squareBtn).toBeTruthy();
+    expect(manualBtn).toBeTruthy();
+    expect(squareBtn.hasAttribute("disabled")).toBe(true);
+    expect(manualBtn.hasAttribute("disabled")).toBe(true);
+
+    // Clicking Square while disabled should be a no-op (no startCheckout called)
+    mockStartCheckout.mockResolvedValue({ ok: true, data: { bill_id: 1, checkout_total: "30.00" } });
+    fireEvent.click(squareBtn);
+    expect(mockStartCheckout).not.toHaveBeenCalled();
+
+    // Clicking Manual while disabled should be a no-op (no markPaid called)
+    fireEvent.click(manualBtn);
+    expect(mockMarkPaid).not.toHaveBeenCalled();
+
+    // Resolve the hung cancel to clean up
+    await act(async () => {
+      resolveCancel({ ok: true, data: { bill_status: "open", table_code: "T1", bill_id: 99, success: true, session_table_status: "occupied" } });
+      await Promise.resolve();
+    });
+  });
+
+  it("cancel button is disabled while squarePending is true (symmetric guard)", async () => {
+    // To get squarePending=true we need an open bill (paying bills hide Square button).
+    // Actually the cancel button only appears when billPaying=true AND !squarePending.
+    // So the cancel button is already hidden when squarePending is true by the
+    // conditional render `{billPaying && !squarePending && ...}`.
+    // This test documents that symmetry: when squarePending is true the cancel button
+    // is not rendered at all.
+    const openBill: BillDetail = { ...PAYING_BILL_LOCAL, status: "paying" };
+
+    // Make startCheckout hang so squarePending stays true
+    let resolveStart!: (v: unknown) => void;
+    mockStartCheckout.mockReturnValue(new Promise((res) => { resolveStart = res; }));
+    mockConfirm.mockResolvedValue(true);
+
+    render(<TableDetail tableCode="T1" initialBill={openBill} />);
+
+    // Before square is triggered, cancel button should be visible
+    expect(screen.queryByText("Cancel checkout & restore bill")).toBeTruthy();
+
+    // Click Square (first it checks getSquareConfig which is mocked, then calls startCheckout)
+    const squareBtn = screen.getByText("Charge with Square").closest("button")!;
+    fireEvent.click(squareBtn);
+
+    // startCheckout is async — wait for it to be called
+    await waitFor(() => expect(mockStartCheckout).toHaveBeenCalled());
+
+    // Now squarePending is true → the cancel button should be hidden
+    // (the condition is `{billPaying && !squarePending && ...}`)
+    await waitFor(() => {
+      expect(screen.queryByText("Cancel checkout & restore bill")).toBeNull();
+    });
+
+    // Resolve to clean up
+    await act(async () => {
+      resolveStart({ ok: false, error: "test cleanup" });
+      await Promise.resolve();
+    });
   });
 });

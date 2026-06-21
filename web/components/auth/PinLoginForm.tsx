@@ -4,10 +4,8 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { LoginResult } from "@/lib/server/actions/auth";
 
-type Role = "staff" | "admin";
-
 interface Props {
-  loginAction: (role: Role, pin: string) => Promise<LoginResult>;
+  loginAction: (username: string, pin: string) => Promise<LoginResult>;
 }
 
 // Heart SVG — matches design logo mark
@@ -65,7 +63,7 @@ function MailIcon() {
 export function PinLoginForm({ loginAction }: Props) {
   const t = useTranslations("auth");
   const router = useRouter();
-  const [role, setRole] = useState<Role>("staff");
+  const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -74,9 +72,12 @@ export function PinLoginForm({ loginAction }: Props) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const result = await loginAction(role, pin);
+      const result = await loginAction(username.trim(), pin);
       if (result.ok) {
-        router.push(role === "admin" ? "/admin" : "/staff");
+        // The server sets the role on the session cookie; the proxy + admin pages
+        // enforce role. Land everyone on /staff; admins navigate to /admin from there.
+        router.push("/staff");
+        router.refresh();
       } else {
         setError(t(result.errorCode));
         setPin("");
@@ -187,67 +188,45 @@ export function PinLoginForm({ loginAction }: Props) {
           {t("subtitle")}
         </div>
 
-        {/* Role toggle */}
-        <div
-          style={{
-            display: "flex",
-            background: "#FBF6F3",
-            borderRadius: "11px",
-            padding: "4px",
-            marginBottom: "16px",
-            fontSize: "13px",
-            fontWeight: 600,
-            textAlign: "center",
-          }}
-          role="group"
-          aria-label="role"
-        >
-          {(["staff", "admin"] as const).map((r) => {
-            const active = r === role;
-            return (
-              <button
-                key={r}
-                type="button"
-                onClick={() => { setRole(r); setPin(""); setError(null); }}
-                aria-pressed={active}
-                style={{
-                  flex: 1,
-                  background: active ? "#fff" : "transparent",
-                  color: active ? "#C9486A" : "#A8959A",
-                  borderRadius: "8px",
-                  padding: "9px",
-                  border: "none",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  fontSize: "13px",
-                  boxShadow: active ? "0 2px 6px -2px rgba(58,42,48,0.2)" : "none",
-                  minHeight: "var(--tap-min)",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                {t(r === "staff" ? "roleStaff" : "roleAdmin")}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ID field (visual only — design shows it, but login logic only needs PIN) */}
-        <div
-          style={{
-            border: "1.5px solid rgba(58,42,48,0.14)",
-            borderRadius: "12px",
-            padding: "13px 15px",
-            fontSize: "13.5px",
-            color: "#A8959A",
-            marginBottom: "11px",
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-          }}
-          aria-hidden="true"
-        >
-          <MailIcon />
-          {t("idPlaceholder")}
+        {/* Username input */}
+        <div style={{ marginBottom: "11px" }}>
+          <label
+            htmlFor="username"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              border: `1.5px solid ${error ? "#C9486A" : "rgba(58,42,48,0.14)"}`,
+              borderRadius: "12px",
+              padding: "13px 15px",
+              background: "#fff",
+              cursor: "text",
+            }}
+          >
+            <MailIcon />
+            <input
+              id="username"
+              name="username"
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder={t("idPlaceholder")}
+              aria-label={t("idLabel")}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              style={{
+                border: "none",
+                outline: "none",
+                flex: 1,
+                fontSize: "13.5px",
+                color: username ? "var(--foreground)" : "#A8959A",
+                background: "transparent",
+              }}
+            />
+          </label>
         </div>
 
         {/* PIN input */}
@@ -272,6 +251,7 @@ export function PinLoginForm({ loginAction }: Props) {
               inputMode="numeric"
               autoComplete="current-password"
               placeholder={t("pinPlaceholder")}
+              aria-label={t("pinLabel")}
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               required
@@ -307,7 +287,7 @@ export function PinLoginForm({ loginAction }: Props) {
         {/* Submit */}
         <button
           type="submit"
-          disabled={pending || pin.length === 0}
+          disabled={pending || pin.length === 0 || username.trim().length === 0}
           style={{
             width: "100%",
             background: "#3A2A30",
@@ -320,8 +300,12 @@ export function PinLoginForm({ loginAction }: Props) {
             fontSize: "15px",
             boxShadow: "0 12px 24px -12px rgba(58,42,48,0.8)",
             border: "none",
-            cursor: pending || pin.length === 0 ? "not-allowed" : "pointer",
-            opacity: pending || pin.length === 0 ? 0.6 : 1,
+            cursor:
+              pending || pin.length === 0 || username.trim().length === 0
+                ? "not-allowed"
+                : "pointer",
+            opacity:
+              pending || pin.length === 0 || username.trim().length === 0 ? 0.6 : 1,
             minHeight: "var(--tap-min)",
             transition: "opacity 0.15s ease",
           }}

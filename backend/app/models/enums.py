@@ -49,3 +49,15 @@ class PaymentStatus(str, enum.Enum):
     pending = "pending"
     completed = "completed"
     failed = "failed"
+
+
+class StaffRole(str, enum.Enum):
+    staff = "staff"
+    manager = "manager"
+    admin = "admin"
+
+
+class DiscountType(str, enum.Enum):
+    none = "none"
+    percent = "percent"
+    fixed = "fixed"

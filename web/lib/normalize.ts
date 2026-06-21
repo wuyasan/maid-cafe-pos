@@ -1,4 +1,4 @@
-import type { Maid, SessionRead, StaffTable, StaffTablesResult } from "@/lib/types";
+import type { BillDetail, DiscountType, Maid, SessionRead, StaffTable, StaffTablesResult } from "@/lib/types";
 
 // Raw FastAPI wire shapes (what the backend actually returns). Normalized here so
 // screens consume clean domain types. Keep in sync with backend pydantic schemas.
@@ -33,6 +33,48 @@ export function normalizeSessionMaids(rows: SessionMaidApi[]): Maid[] {
       photoUrl: r.maid_photo_url,
       isAvailable: r.is_available,
     }));
+}
+
+// ─── Bill normalization (F15 discount) ─────────────────────────────────────
+//
+// The backend bill JSON now carries discount fields:
+//   subtotal, discount_type ("none"|"percent"|"fixed"), discount_value,
+//   discount_amount, discount_note, total (post-discount).
+// Older / partial responses may omit them; default to a no-discount shape so the
+// UI never reads `undefined`. Raw bill is `unknown`-ish — coerce defensively.
+
+const VALID_DISCOUNT_TYPES: ReadonlySet<string> = new Set(["none", "percent", "fixed"]);
+
+function asDiscountType(v: unknown): DiscountType {
+  return typeof v === "string" && VALID_DISCOUNT_TYPES.has(v) ? (v as DiscountType) : "none";
+}
+
+/** Coerce a decimal-ish value to a fixed-2 string; falls back to "0.00". */
+function asMoney(v: unknown, fallback = "0.00"): string {
+  if (v == null) return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(2) : fallback;
+}
+
+/**
+ * Normalize a bill (or pass through null). Guarantees discount fields exist with
+ * safe defaults so customer + staff bill panels can render unconditionally.
+ */
+export function normalizeBill(raw: BillDetail | null): BillDetail | null {
+  if (!raw) return null;
+  const discountType = asDiscountType(raw.discount_type);
+  const subtotal = asMoney(raw.subtotal ?? raw.total);
+  return {
+    ...raw,
+    subtotal,
+    discount_type: discountType,
+    discount_value: raw.discount_value != null ? String(raw.discount_value) : "0",
+    discount_amount: asMoney(raw.discount_amount),
+    discount_note: raw.discount_note ?? null,
+    tax: asMoney(raw.tax),
+    service_charge: asMoney(raw.service_charge),
+    total: asMoney(raw.total ?? subtotal),
+  };
 }
 
 // ─── Staff table normalization ─────────────────────────────────────────────

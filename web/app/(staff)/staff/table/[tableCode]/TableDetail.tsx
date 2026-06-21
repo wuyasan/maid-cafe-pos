@@ -12,6 +12,8 @@ import {
   startCheckout,
   cancelCheckout,
   markPaid,
+  applyDiscount,
+  removeDiscount,
 } from "@/lib/server/actions/staff";
 import { formatUSD } from "@/lib/money";
 import {
@@ -27,6 +29,8 @@ interface Props {
   initialBill: BillDetail | null;
 }
 
+const DISCOUNT_NOTE_MAX_LENGTH = 500;
+
 // Status badge styling (matching design)
 const STATUS_BADGE: Record<string, { bg: string; color: string; label: string }> = {
   open:     { bg: "#F6EFE0", color: "#8A6B2E",  label: "使用中" },
@@ -39,6 +43,7 @@ const STATUS_BADGE: Record<string, { bg: string; color: string; label: string }>
 export function TableDetail({ tableCode, initialBill }: Props) {
   const t = useTranslations("staff");
   const tPay = useTranslations("payment");
+  const tDisc = useTranslations("payment.discount");
   const pathname = usePathname();
 
   // Poll via /api/staff/table/[code]/bill to keep bill live.
@@ -89,7 +94,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   }, [refetch]);
 
   async function handleSquarePayment() {
-    if (!bill || squarePending || markPaidPending) return;
+    if (!bill || squarePending || markPaidPending || cancelCheckoutPending) return;
     setPayError(null);
     setSquarePending(true);
 
@@ -137,7 +142,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   }
 
   async function handleManualMarkPaid() {
-    if (!bill || squarePending || markPaidPending) return;
+    if (!bill || squarePending || markPaidPending || cancelCheckoutPending) return;
     const confirmed = await confirm({
       title: tPay("confirmManualTitle"),
       description: tPay("confirmManualDesc"),
@@ -165,7 +170,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   }
 
   async function handleCancelCheckout() {
-    if (!bill || cancelCheckoutPending) return;
+    if (!bill || cancelCheckoutPending || squarePending || markPaidPending) return;
     const confirmed = await confirm({
       title: tPay("confirmCancelCheckoutTitle"),
       description: tPay("confirmCancelCheckoutDesc"),
@@ -194,8 +199,65 @@ export function TableDetail({ tableCode, initialBill }: Props) {
     }
   }
 
+  // ─── Discount state (F15) ────────────────────────────────────────────────────
+  const [discountModalOpen, setDiscountModalOpen] = useState(false);
+  const [discountPending, setDiscountPending] = useState(false);
+  const [discountError, setDiscountError] = useState<string | null>(null);
+
+  /** Map a backend discount error to a friendly message (409 not-open / 422 invalid). */
+  function discountErrorMessage(raw: string, fallback: string): string {
+    const lower = raw.toLowerCase();
+    if (lower.includes("not open") || lower.includes("open") || lower.includes("409")) {
+      return tDisc("errorNotOpen");
+    }
+    if (lower.includes("invalid") || lower.includes("value") || lower.includes("422")) {
+      return tDisc("errorInvalid");
+    }
+    return raw || fallback;
+  }
+
+  async function handleApplyDiscount(payload: { type: "percent" | "fixed"; value: string; note?: string }) {
+    if (discountPending) return;
+    setDiscountError(null);
+    setDiscountPending(true);
+    try {
+      const res = await applyDiscount(tableCode, payload);
+      if (!res.ok) {
+        setDiscountError(discountErrorMessage(res.error, tDisc("applyFailed")));
+        return;
+      }
+      setDiscountModalOpen(false);
+      refetch();
+    } finally {
+      setDiscountPending(false);
+    }
+  }
+
+  async function handleRemoveDiscount() {
+    if (discountPending) return;
+    const confirmed = await confirm({
+      title: tDisc("confirmRemoveTitle"),
+      description: tDisc("confirmRemoveDesc"),
+    });
+    if (!confirmed) return;
+    setDiscountError(null);
+    setDiscountPending(true);
+    try {
+      const res = await removeDiscount(tableCode);
+      if (!res.ok) {
+        setDiscountError(discountErrorMessage(res.error, tDisc("removeFailed")));
+        return;
+      }
+      refetch();
+    } finally {
+      setDiscountPending(false);
+    }
+  }
+
   const billPaid = bill?.status === "paid";
   const billPaying = bill?.status === "paying";
+  const billOpen = bill?.status === "open";
+  const hasDiscount = (bill?.discount_type ?? "none") !== "none";
   // If poller has fetched at least once and bill is null, the table has been cleared/released.
   const isCleared = hasFetched && !bill;
   const statusKey = isCleared ? "cleared" : (bill?.status ?? "open");
@@ -204,6 +266,19 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   return (
     <>
     {confirmDialog}
+    {discountModalOpen && bill && (
+      <DiscountModal
+        subtotal={bill.subtotal}
+        initialType={hasDiscount && bill.discount_type !== "none" ? bill.discount_type : "percent"}
+        initialValue={hasDiscount ? bill.discount_value : ""}
+        initialNote={bill.discount_note ?? ""}
+        pending={discountPending}
+        confirm={confirm}
+        onCancel={() => setDiscountModalOpen(false)}
+        onApply={handleApplyDiscount}
+        tDisc={tDisc}
+      />
+    )}
     <div
       style={{ background: "#FBF6F3", minHeight: "100vh", display: "flex", flexDirection: "column" }}
     >
@@ -349,36 +424,138 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                 ))}
               </ul>
 
-              {/* Total row */}
+              {/* Totals: subtotal → (discount) → total */}
               <div
                 style={{
                   padding: "13px 16px 14px",
                   borderTop: "1px dashed rgba(58,42,48,0.14)",
                   display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "baseline",
+                  flexDirection: "column",
+                  gap: 8,
                 }}
               >
-                <span
+                {/* Subtotal */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span style={{ fontSize: 13, color: "var(--muted)" }}>{tDisc("subtotal")}</span>
+                  <span
+                    className="num"
+                    style={{ fontWeight: 600, fontSize: 14, color: "var(--foreground)" }}
+                  >
+                    {formatUSD(bill.subtotal)}
+                  </span>
+                </div>
+
+                {/* Discount line (only when discounted) */}
+                {hasDiscount && (
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}
+                    data-testid="discount-row"
+                  >
+                    <span style={{ fontSize: 13, color: "var(--maid)" }}>
+                      {tDisc("label")}
+                      {bill.discount_note ? ` · ${bill.discount_note}` : ""}
+                    </span>
+                    <span className="num" style={{ fontWeight: 600, fontSize: 14, color: "var(--maid)" }}>
+                      −{formatUSD(bill.discount_amount)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Total */}
+                <div
                   style={{
-                    fontFamily: "var(--font-display-stack)",
-                    fontWeight: 700,
-                    fontSize: 16,
-                    color: "var(--foreground)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    borderTop: hasDiscount ? "1px solid rgba(58,42,48,0.06)" : "none",
+                    paddingTop: hasDiscount ? 8 : 0,
                   }}
                 >
-                  合计
-                </span>
-                <span
-                  style={{
-                    fontFamily: "var(--font-num-stack)",
-                    fontWeight: 700,
-                    fontSize: 22,
-                    color: "var(--brand)",
-                  }}
-                >
-                  {formatUSD(bill.total)}
-                </span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-display-stack)",
+                      fontWeight: 700,
+                      fontSize: 16,
+                      color: "var(--foreground)",
+                    }}
+                  >
+                    {tDisc("total")}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-num-stack)",
+                      fontWeight: 700,
+                      fontSize: 22,
+                      color: "var(--brand)",
+                    }}
+                  >
+                    {formatUSD(bill.total)}
+                  </span>
+                </div>
+
+                {/* Discount controls (open bills only) */}
+                {discountError && (
+                  <div
+                    style={{
+                      background: "#fef2f2",
+                      borderRadius: 10,
+                      padding: "8px 11px",
+                      fontSize: 12,
+                      color: "#b91c1c",
+                    }}
+                  >
+                    {discountError}
+                  </div>
+                )}
+                {billOpen && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDiscountError(null);
+                        setDiscountModalOpen(true);
+                      }}
+                      disabled={discountPending}
+                      style={{
+                        flex: 1,
+                        border: "1.5px solid rgba(142,134,201,0.4)",
+                        background: "transparent",
+                        color: discountPending ? "var(--muted)" : "var(--maid)",
+                        borderRadius: 12,
+                        padding: "10px",
+                        fontWeight: 600,
+                        fontSize: 12.5,
+                        cursor: discountPending ? "not-allowed" : "pointer",
+                        opacity: discountPending ? 0.7 : 1,
+                        minHeight: "var(--tap-min)",
+                      }}
+                    >
+                      {hasDiscount ? tDisc("edit") : tDisc("apply")}
+                    </button>
+                    {hasDiscount && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveDiscount()}
+                        disabled={discountPending}
+                        style={{
+                          flex: 1,
+                          border: "1.5px solid rgba(58,42,48,0.14)",
+                          background: "transparent",
+                          color: discountPending ? "var(--muted)" : "#C9486A",
+                          borderRadius: 12,
+                          padding: "10px",
+                          fontWeight: 600,
+                          fontSize: 12.5,
+                          cursor: discountPending ? "not-allowed" : "pointer",
+                          opacity: discountPending ? 0.7 : 1,
+                          minHeight: "var(--tap-min)",
+                        }}
+                      >
+                        {discountPending ? tDisc("removing") : tDisc("remove")}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -457,9 +634,9 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                   <button
                     type="button"
                     onClick={() => void handleSquarePayment()}
-                    disabled={squarePending || markPaidPending || billPaid}
+                    disabled={squarePending || markPaidPending || cancelCheckoutPending || billPaid}
                     style={{
-                      background: squarePending ? "var(--muted)" : "#C9486A",
+                      background: squarePending || cancelCheckoutPending ? "var(--muted)" : "#C9486A",
                       color: "#fff",
                       borderRadius: 14,
                       padding: "15px",
@@ -467,10 +644,10 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                       fontWeight: 700,
                       fontSize: 15,
                       border: "none",
-                      cursor: squarePending || markPaidPending ? "not-allowed" : "pointer",
-                      opacity: squarePending || markPaidPending ? 0.7 : 1,
+                      cursor: squarePending || markPaidPending || cancelCheckoutPending ? "not-allowed" : "pointer",
+                      opacity: squarePending || markPaidPending || cancelCheckoutPending ? 0.7 : 1,
                       minHeight: "var(--tap-min)",
-                      boxShadow: squarePending || markPaidPending
+                      boxShadow: squarePending || markPaidPending || cancelCheckoutPending
                         ? "none"
                         : "0 12px 24px -12px rgba(201,72,106,0.8)",
                       display: "flex",
@@ -500,17 +677,17 @@ export function TableDetail({ tableCode, initialBill }: Props) {
                   <button
                     type="button"
                     onClick={() => void handleManualMarkPaid()}
-                    disabled={squarePending || markPaidPending || billPaid}
+                    disabled={squarePending || markPaidPending || cancelCheckoutPending || billPaid}
                     style={{
                       border: "1.5px solid rgba(58,42,48,0.14)",
                       background: "transparent",
-                      color: markPaidPending ? "var(--muted)" : "#3A2A30",
+                      color: markPaidPending || cancelCheckoutPending ? "var(--muted)" : "#3A2A30",
                       borderRadius: 14,
                       padding: "12px",
                       fontWeight: 600,
                       fontSize: 13,
-                      cursor: squarePending || markPaidPending ? "not-allowed" : "pointer",
-                      opacity: squarePending || markPaidPending ? 0.7 : 1,
+                      cursor: squarePending || markPaidPending || cancelCheckoutPending ? "not-allowed" : "pointer",
+                      opacity: squarePending || markPaidPending || cancelCheckoutPending ? 0.7 : 1,
                       minHeight: "var(--tap-min)",
                       transition: "opacity 0.15s",
                     }}
@@ -742,5 +919,281 @@ function BillItemRow({
         )}
       </div>
     </li>
+  );
+}
+
+// ── Discount modal (F15) ──────────────────────────────────────────────────────
+
+function DiscountModal({
+  subtotal,
+  initialType,
+  initialValue,
+  initialNote,
+  pending,
+  confirm,
+  onCancel,
+  onApply,
+  tDisc,
+}: {
+  subtotal: string;
+  initialType: "percent" | "fixed";
+  initialValue: string;
+  initialNote: string;
+  pending: boolean;
+  confirm: ConfirmFn;
+  onCancel: () => void;
+  onApply: (payload: { type: "percent" | "fixed"; value: string; note?: string }) => void;
+  tDisc: ReturnType<typeof useTranslations>;
+}) {
+  const [type, setType] = useState<"percent" | "fixed">(initialType);
+  const [value, setValue] = useState<string>(initialValue);
+  const [note, setNote] = useState<string>(initialNote);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const numericValue = Number(value);
+  const subtotalNum = Number(subtotal);
+
+  /** Validate the entered value for the active type. Returns null if valid. */
+  function validate(): string | null {
+    if (value.trim() === "" || !Number.isFinite(numericValue)) {
+      return type === "percent" ? tDisc("invalidPercent") : tDisc("invalidFixed");
+    }
+    if (type === "percent") {
+      if (numericValue < 0 || numericValue > 100) return tDisc("invalidPercent");
+    } else {
+      if (numericValue < 0) return tDisc("invalidFixed");
+    }
+    return null;
+  }
+
+  // Estimated dollar amount removed, for the confirm dialog copy.
+  const estimatedAmount =
+    type === "percent"
+      ? (Number.isFinite(subtotalNum) ? (subtotalNum * numericValue) / 100 : 0)
+      : numericValue;
+
+  async function handleSubmit() {
+    if (pending) return;
+    const err = validate();
+    if (err) {
+      setLocalError(err);
+      return;
+    }
+    setLocalError(null);
+    const confirmed = await confirm({
+      title: tDisc("confirmTitle"),
+      description:
+        type === "percent"
+          ? tDisc("confirmDescPercent", { value: numericValue, amount: formatUSD(estimatedAmount) })
+          : tDisc("confirmDescFixed", { amount: formatUSD(estimatedAmount) }),
+    });
+    if (!confirmed) return;
+    onApply({ type, value: value.trim(), note: note.trim() || undefined });
+  }
+
+  return (
+    <div
+      role="presentation"
+      onClick={onCancel}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 900,
+        background: "rgba(35,25,29,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "0 22px",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={tDisc("modalTitle")}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff",
+          borderRadius: 20,
+          padding: "22px 20px",
+          width: "100%",
+          maxWidth: 380,
+          boxShadow: "0 16px 44px -12px rgba(58,42,48,0.32)",
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "var(--font-display-stack)",
+            fontWeight: 700,
+            fontSize: 17,
+            color: "var(--foreground)",
+            marginBottom: 16,
+          }}
+        >
+          {tDisc("modalTitle")}
+        </div>
+
+        {/* Type toggle */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          {(["percent", "fixed"] as const).map((k) => {
+            const active = type === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => {
+                  setType(k);
+                  setLocalError(null);
+                }}
+                aria-pressed={active}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  borderRadius: 12,
+                  border: active ? "1.5px solid var(--maid)" : "1.5px solid rgba(58,42,48,0.14)",
+                  background: active ? "rgba(142,134,201,0.1)" : "transparent",
+                  color: active ? "var(--maid)" : "var(--muted)",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {k === "percent" ? tDisc("typePercent") : tDisc("typeFixed")}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Value input */}
+        <label
+          htmlFor="discount-value"
+          style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 6 }}
+        >
+          {tDisc("valueLabel")}
+        </label>
+        <input
+          id="discount-value"
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={type === "percent" ? 100 : undefined}
+          step={type === "percent" ? 1 : 0.01}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setLocalError(null);
+          }}
+          placeholder={type === "percent" ? tDisc("valuePercentPlaceholder") : tDisc("valueFixedPlaceholder")}
+          style={{
+            width: "100%",
+            border: "1.5px solid rgba(58,42,48,0.14)",
+            borderRadius: 12,
+            padding: "12px 14px",
+            fontSize: 15,
+            fontFamily: "var(--font-num-stack)",
+            color: "var(--foreground)",
+            background: "var(--background)",
+            outline: "none",
+            boxSizing: "border-box",
+            marginBottom: 14,
+          }}
+        />
+
+        {/* Note input */}
+        <label
+          htmlFor="discount-note"
+          style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 6 }}
+        >
+          {tDisc("noteLabel")}
+        </label>
+        <input
+          id="discount-note"
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          maxLength={DISCOUNT_NOTE_MAX_LENGTH}
+          placeholder={tDisc("notePlaceholder")}
+          style={{
+            width: "100%",
+            border: "1.5px solid rgba(58,42,48,0.14)",
+            borderRadius: 12,
+            padding: "12px 14px",
+            fontSize: 14,
+            color: "var(--foreground)",
+            background: "var(--background)",
+            outline: "none",
+            boxSizing: "border-box",
+            marginBottom: 4,
+          }}
+        />
+        <div
+          data-testid="discount-note-count"
+          style={{
+            fontSize: 11,
+            color: "var(--muted)",
+            textAlign: "right",
+            fontFamily: "var(--font-num-stack)",
+            marginBottom: 14,
+          }}
+        >
+          {note.length}/{DISCOUNT_NOTE_MAX_LENGTH}
+        </div>
+
+        {localError && (
+          <div
+            style={{
+              background: "#fef2f2",
+              borderRadius: 10,
+              padding: "8px 11px",
+              fontSize: 12,
+              color: "#b91c1c",
+              marginBottom: 12,
+            }}
+          >
+            {localError}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              border: "1.5px solid rgba(58,42,48,0.14)",
+              background: "transparent",
+              color: "var(--muted)",
+              borderRadius: 12,
+              padding: "12px",
+              fontWeight: 600,
+              fontSize: 14,
+              cursor: "pointer",
+            }}
+          >
+            {tDisc("cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={pending}
+            style={{
+              flex: 2,
+              border: "none",
+              background: "var(--maid)",
+              color: "#fff",
+              borderRadius: 12,
+              padding: "12px",
+              fontFamily: "var(--font-display-stack)",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: pending ? "not-allowed" : "pointer",
+              opacity: pending ? 0.7 : 1,
+            }}
+          >
+            {pending ? tDisc("applying") : tDisc("save")}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

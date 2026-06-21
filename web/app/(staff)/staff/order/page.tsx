@@ -9,15 +9,6 @@ async function fetchTables(): Promise<StaffTablesResult> {
   return res.json() as Promise<StaffTablesResult>;
 }
 
-const tableCodeCollator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: "base",
-});
-
-function compareTableCodes(a: string, b: string) {
-  return tableCodeCollator.compare(a, b);
-}
-
 // Status badge styles matching design
 const STATUS_STYLE: Record<
   SessionTableStatus,
@@ -34,11 +25,7 @@ export default function StaffOrderPage() {
     intervalMs: 10000,
   });
 
-const tables = (data?.tables ?? [])
-  .slice()
-  .sort((a, b) =>
-    compareTableCodes(a.table_code, b.table_code),
-  );
+  const tables = data?.tables ?? [];
 
   function openOrder(tableCode: string) {
     // Reuse the customer ordering flow with source=staff.
