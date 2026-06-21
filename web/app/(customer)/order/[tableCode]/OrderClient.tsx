@@ -2,6 +2,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { formatUSD } from "@/lib/money";
+import { maidServiceUnitPrice } from "@/lib/maidPricing";
 import { useLiveQuery } from "@/lib/hooks/useLiveQuery";
 import { submitOrderAction } from "@/lib/server/actions/orders";
 import { LiveDot } from "@/components/ui/LiveDot";
@@ -102,9 +103,18 @@ export function OrderClient({
     [items, tab],
   );
 
+  // Maid-service lines price by base + per-extra-maid surcharge (mirrors backend);
+  // non-maid lines fall back to base price. maids.length = on-duty count for the cap.
+  const maidNameById = useMemo(() => new Map(maids.map((m) => [m.id, m.name])), [maids]);
   const cartTotal = useMemo(
-    () => cart.reduce((sum, l) => sum + Number(l.item.price) * l.quantity, 0),
-    [cart],
+    () =>
+      cart.reduce(
+        (sum, l) =>
+          sum +
+          maidServiceUnitPrice(l.item, l.selectedMaidIds.length, maids.length) * l.quantity,
+        0,
+      ),
+    [cart, maids.length],
   );
   const cartCount = useMemo(() => cart.reduce((n, l) => n + l.quantity, 0), [cart]);
 
@@ -186,6 +196,8 @@ export function OrderClient({
           cart={cart}
           cartTotal={cartTotal}
           cartCount={cartCount}
+          maidNameById={maidNameById}
+          totalAvailableMaids={maids.length}
           onBack={() => setView("menu")}
           onSetQty={setQty}
           onOpenNote={(line) => setNoteTarget(line)}
@@ -536,6 +548,8 @@ function CartView({
   cart,
   cartTotal,
   cartCount,
+  maidNameById,
+  totalAvailableMaids,
   onBack,
   onSetQty,
   onOpenNote,
@@ -548,6 +562,8 @@ function CartView({
   cart: CartLine[];
   cartTotal: number;
   cartCount: number;
+  maidNameById: Map<number, string>;
+  totalAvailableMaids: number;
   onBack: () => void;
   onSetQty: (key: string, delta: number) => void;
   onOpenNote: (line: CartLine) => void;
@@ -630,7 +646,12 @@ function CartView({
                     </div>
                     {isMaid && line.selectedMaidIds.length > 0 ? (
                       <div style={{ fontSize: 11, color: "var(--maid)", fontWeight: 500, marginTop: 1 }}>
-                        {t("maidSelected", { count: line.selectedMaidIds.length })}
+                        ♡{" "}
+                        {line.selectedMaidIds
+                          .map((id) => maidNameById.get(id))
+                          .filter(Boolean)
+                          .join(", ") ||
+                          t("maidSelected", { count: line.selectedMaidIds.length })}
                       </div>
                     ) : (
                       <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 1 }}>
@@ -647,7 +668,13 @@ function CartView({
                       flexShrink: 0,
                     }}
                   >
-                    {formatUSD(Number(line.item.price) * line.quantity)}
+                    {formatUSD(
+                      maidServiceUnitPrice(
+                        line.item,
+                        line.selectedMaidIds.length,
+                        totalAvailableMaids,
+                      ) * line.quantity,
+                    )}
                   </span>
                 </div>
 
@@ -1293,7 +1320,7 @@ function MaidPicker({
         >
           {t("add")}
           {selected.length > 0 && (
-            <span className="num"> · {formatUSD(Number(item.price))}</span>
+            <span className="num"> · {formatUSD(maidServiceUnitPrice(item, selected.length, maids.length))}</span>
           )}
         </button>
       </div>
