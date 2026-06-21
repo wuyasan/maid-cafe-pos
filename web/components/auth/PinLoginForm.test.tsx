@@ -1,12 +1,10 @@
 /**
- * Tests for PinLoginForm: username + PIN inputs and error-code → i18n mapping.
+ * Tests for PinLoginForm error-code → i18n message mapping.
  *
  * Coverage:
- *  - renders username + PIN fields
- *  - wrongPin errorCode shows the "incorrect username or PIN" message
  *  - rateLimited errorCode shows the rate-limit message
+ *  - wrongPin errorCode shows the wrong-PIN message
  *  - error errorCode shows the generic error message
- *  - loginAction is called with (username, pin)
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -19,12 +17,12 @@ vi.mock("next-intl", () => ({
     const msgs: Record<string, string> = {
       "auth.title": "Welcome back",
       "auth.subtitle": "Staff sign in",
-      "auth.idLabel": "Username",
-      "auth.idPlaceholder": "Username",
-      "auth.pinLabel": "PIN",
+      "auth.roleStaff": "Staff",
+      "auth.roleAdmin": "Admin",
+      "auth.idPlaceholder": "ID",
       "auth.pinPlaceholder": "PIN",
       "auth.submit": "Sign in",
-      "auth.wrongPin": "Incorrect username or PIN.",
+      "auth.wrongPin": "Incorrect PIN. Please try again.",
       "auth.rateLimited": "Too many attempts. Please wait and try again.",
       "auth.error": "Login failed. Please try again.",
     };
@@ -34,66 +32,62 @@ vi.mock("next-intl", () => ({
 
 // ── Mock next/navigation ─────────────────────────────────────────────────────
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeMockAction(result: LoginResult) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  return vi.fn(async (_username: string, _pin: string) => result);
+  return vi.fn(async (_role: "staff" | "admin", _pin: string) => result);
 }
 
-function fillAndSubmit(username = "alice", pin = "1234") {
-  fireEvent.change(screen.getByPlaceholderText("Username"), { target: { value: username } });
-  const pinInput = screen.getByPlaceholderText("PIN");
-  fireEvent.change(pinInput, { target: { value: pin } });
-  fireEvent.submit(pinInput.closest("form")!);
+async function submitForm(pin = "1234") {
+  const input = screen.getByPlaceholderText("PIN");
+  fireEvent.change(input, { target: { value: pin } });
+  const form = input.closest("form")!;
+  fireEvent.submit(form);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe("PinLoginForm", () => {
+describe("PinLoginForm — error code → message mapping", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders a username field and a PIN field", () => {
-    render(<PinLoginForm loginAction={makeMockAction({ ok: true })} />);
-    expect(screen.getByPlaceholderText("Username")).toBeTruthy();
-    expect(screen.getByPlaceholderText("PIN")).toBeTruthy();
-  });
-
-  it("calls loginAction with the entered username and pin", async () => {
-    const action = makeMockAction({ ok: true });
+  it("shows rate-limit message when loginAction returns rateLimited errorCode", async () => {
+    const action = makeMockAction({ ok: false, errorCode: "rateLimited" });
     render(<PinLoginForm loginAction={action} />);
 
-    fillAndSubmit("bob", "5678");
+    await submitForm();
 
     await waitFor(() => {
-      expect(action).toHaveBeenCalledWith("bob", "5678");
+      expect(
+        screen.getByText("Too many attempts. Please wait and try again."),
+      ).toBeTruthy();
     });
   });
 
-  it("shows the wrong-credentials message on wrongPin errorCode", async () => {
-    render(<PinLoginForm loginAction={makeMockAction({ ok: false, errorCode: "wrongPin" })} />);
-    fillAndSubmit();
+  it("shows wrong-PIN message when loginAction returns wrongPin errorCode", async () => {
+    const action = makeMockAction({ ok: false, errorCode: "wrongPin" });
+    render(<PinLoginForm loginAction={action} />);
+
+    await submitForm();
+
     await waitFor(() => {
-      expect(screen.getByText("Incorrect username or PIN.")).toBeTruthy();
+      expect(
+        screen.getByText("Incorrect PIN. Please try again."),
+      ).toBeTruthy();
     });
   });
 
-  it("shows the rate-limit message on rateLimited errorCode", async () => {
-    render(<PinLoginForm loginAction={makeMockAction({ ok: false, errorCode: "rateLimited" })} />);
-    fillAndSubmit();
-    await waitFor(() => {
-      expect(screen.getByText("Too many attempts. Please wait and try again.")).toBeTruthy();
-    });
-  });
+  it("shows generic error message when loginAction returns error errorCode", async () => {
+    const action = makeMockAction({ ok: false, errorCode: "error" });
+    render(<PinLoginForm loginAction={action} />);
 
-  it("shows the generic error message on error errorCode", async () => {
-    render(<PinLoginForm loginAction={makeMockAction({ ok: false, errorCode: "error" })} />);
-    fillAndSubmit();
+    await submitForm();
+
     await waitFor(() => {
       expect(screen.getByText("Login failed. Please try again.")).toBeTruthy();
     });

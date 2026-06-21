@@ -1,7 +1,7 @@
 "use server";
-import { getSession, assertAdminAction } from "@/lib/server/auth";
+import { getSession } from "@/lib/server/auth";
 import { revalidateTag } from "next/cache";
-import { ApiError, api, currentActor } from "@/lib/server/api-client";
+import { ApiError, api } from "@/lib/server/api-client";
 import type {
   SessionCreate,
   SessionRead,
@@ -26,9 +26,6 @@ import type {
   SessionTableUpdate,
   SessionTableAddParty,
   SessionMaidAdminRead,
-  StaffUserAdmin,
-  StaffUserCreate,
-  StaffUserUpdate,
 } from "@/lib/types";
 
 // All admin mutations return a result object (never throw) so error details from
@@ -409,75 +406,5 @@ export async function setSessionMaidAvailability(
     return { ok: true, data };
   } catch (e) {
     return fail(e) as AdminSessionMaidResult;
-  }
-}
-
-// ── Staff users (account system, F1) ────────────────────────────────────────────
-
-export type AdminStaffUserResult =
-  | { ok: true; data: StaffUserAdmin }
-  | { ok: false; error: string };
-export type AdminStaffUsersResult =
-  | { ok: true; data: StaffUserAdmin[] }
-  | { ok: false; error: string };
-
-/** List all staff users. Admin only. */
-export async function listStaffUsers(): Promise<AdminStaffUsersResult> {
-  if (!(await assertAdminAction())) return unauth();
-  try {
-    const data = await api.getStaffUsers();
-    return { ok: true, data };
-  } catch (e) {
-    return fail(e) as AdminStaffUsersResult;
-  }
-}
-
-/** Create a staff user. Admin only. */
-export async function createStaffUser(body: StaffUserCreate): Promise<AdminStaffUserResult> {
-  if (!(await assertAdminAction())) return unauth();
-  try {
-    const data = await api.createStaffUser(body, await currentActor());
-    return { ok: true, data };
-  } catch (e) {
-    return fail(e) as AdminStaffUserResult;
-  }
-}
-
-/** Update a staff user's display name / role. Admin only. */
-export async function updateStaffUser(
-  id: number,
-  body: StaffUserUpdate,
-): Promise<AdminStaffUserResult> {
-  if (!(await assertAdminAction())) return unauth();
-  try {
-    const data = await api.updateStaffUser(id, body, await currentActor());
-    return { ok: true, data };
-  } catch (e) {
-    return fail(e) as AdminStaffUserResult;
-  }
-}
-
-/** Enable / disable a staff user. Admin only. */
-export async function setStaffUserActive(
-  id: number,
-  isActive: boolean,
-): Promise<AdminStaffUserResult> {
-  if (!(await assertAdminAction())) return unauth();
-  try {
-    const data = await api.updateStaffUser(id, { is_active: isActive }, await currentActor());
-    return { ok: true, data };
-  } catch (e) {
-    return fail(e) as AdminStaffUserResult;
-  }
-}
-
-/** Reset a staff user's PIN. Admin only. */
-export async function resetStaffUserPin(id: number, pin: string): Promise<AdminActionResult> {
-  if (!(await assertAdminAction())) return unauth();
-  try {
-    await api.resetStaffUserPin(id, pin, await currentActor());
-    return { ok: true };
-  } catch (e) {
-    return fail(e);
   }
 }

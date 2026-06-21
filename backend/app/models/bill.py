@@ -7,12 +7,10 @@ from typing import List, Optional
 from sqlalchemy import DateTime, Enum, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from sqlalchemy import String
-
 from app.core.time import utcnow
 from app.models.base import Base
 from app.models.common import TimestampMixin
-from app.models.enums import BillStatus, DiscountType
+from app.models.enums import BillStatus
 
 
 class Bill(Base):
@@ -51,28 +49,6 @@ class Bill(Base):
         default=Decimal("0.00"),
         nullable=False,
     )
-
-    discount_type: Mapped[DiscountType] = mapped_column(
-        Enum(DiscountType, name="discount_type"),
-        default=DiscountType.none,
-        nullable=False,
-    )
-    discount_value: Mapped[Decimal] = mapped_column(
-        Numeric(),
-        default=Decimal("0.00"),
-        nullable=False,
-    )
-    discount_amount: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
-        default=Decimal("0.00"),
-        nullable=False,
-    )
-    discount_note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    discounted_by: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("staff_users.id"),
-        nullable=True,
-    )
-    discounted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     opened_at: Mapped[datetime] = mapped_column(
         DateTime,

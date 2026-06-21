@@ -8,9 +8,7 @@ from app.api.v1.endpoints import (
     production,
     session_maids,
     sessions,
-    staff_auth,
     staff_checkout,
-    staff_users,
     tables,
     uploads,
 
@@ -28,8 +26,6 @@ api_router.include_router(
     prefix="/customer-orders",
     tags=["customer-orders"],
 )
-api_router.include_router(staff_auth.router)
-api_router.include_router(staff_users.router)
 api_router.include_router(staff_checkout.router)
 api_router.include_router(staff_order_items.router)
 api_router.include_router(session_maids.router)
