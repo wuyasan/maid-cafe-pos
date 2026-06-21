@@ -196,7 +196,10 @@ export const api = {
     getLive<StaffTablesApi>("/staff/tables").then(normalizeStaffTables),
 
   getProductionQueue: (station: "kitchen" | "bar"): Promise<ProductionQueueResult> =>
-    getLive<ProductionQueueResult>(`/staff/production/${station}`),
+    // include_completed=true: the board renders a "completed/Done" column, and the
+    // backend excludes completed tasks by default. Completed-but-not-picked-up tasks
+    // stay visible until a runner picks them up (then they drop off the queue).
+    getLive<ProductionQueueResult>(`/staff/production/${station}?include_completed=true`),
 
   getPickupOrders: (): Promise<PickupOrdersResult> =>
     getLive<PickupOrdersResult>("/staff/production/pickup/orders"),

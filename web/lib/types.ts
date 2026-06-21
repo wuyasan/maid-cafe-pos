@@ -99,6 +99,8 @@ export interface MenuItem {
   item_type: MenuItemType;
   is_bundle: boolean;
   requires_maid_selection?: boolean;
+  /** Present (1:1) for maid_service items — drives client-side price preview. */
+  maid_service_pricing?: MaidServicePricing | null;
 }
 
 // Frontend domain shape (normalized from the backend's flattened session-maid rows).
