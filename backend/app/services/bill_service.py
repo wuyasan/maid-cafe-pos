@@ -4,10 +4,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.bill import Bill
-from app.models.enums import BillStatus, DiscountType, SessionTableStatus
+from app.models.enums import BillStatus, DiscountType, SessionTableStatus, TipType
 from app.models.table import SessionTable, Table
 
 CENTS = Decimal("0.01")
+
+# Upper bound for any Numeric(10, 2) column (e.g. bill.total, bill.tip_amount,
+# payment columns). Values at or below this fit; anything larger would overflow
+# the column and crash the DB write (500). Callers must guard against this and
+# surface a 422 instead.
+MAX_MONEY = Decimal("99999999.99")
+
+
+class TotalOverflowError(Exception):
+    """Raised when a recompute would push tip_amount or total past MAX_MONEY.
+
+    The API layer catches this and returns 422 instead of letting an oversized
+    Numeric(10, 2) value reach the DB (which would raise a 500).
+    """
 
 
 def get_session_table_by_table_code(
@@ -99,6 +113,44 @@ def compute_discount_amount(
     return amount
 
 
+def compute_tip_amount(
+    discounted: Decimal,
+    tip_type: TipType,
+    tip_value: Decimal,
+) -> Decimal:
+    """Compute the tip amount for a bill given its DISCOUNTED total.
+
+    - none    -> 0
+    - percent -> round(discounted * value/100, 2) (ROUND_HALF_UP)
+    - fixed   -> value (an additive charge; NOT clamped)
+
+    Unlike a discount, a tip is an add-on, so the fixed branch is not clamped to
+    the subtotal. Overflow protection lives in the recompute / API layer, which
+    raises TotalOverflowError -> 422 if the resulting amount or total would
+    exceed MAX_MONEY.
+    """
+    discounted = Decimal(discounted or 0)
+    if tip_type == TipType.none:
+        return Decimal("0.00")
+
+    value = Decimal(tip_value or 0)
+    if value <= 0:
+        return Decimal("0.00")
+
+    if tip_type == TipType.percent:
+        if discounted <= 0:
+            return Decimal("0.00")
+        amount = (discounted * value / Decimal("100")).quantize(
+            CENTS, rounding=ROUND_HALF_UP
+        )
+    else:  # fixed
+        amount = value.quantize(CENTS, rounding=ROUND_HALF_UP)
+
+    if amount < 0:
+        amount = Decimal("0.00")
+    return amount
+
+
 def apply_discount_to_bill(bill: Bill) -> Bill:
     """Recompute discount_amount + total from an already-set bill.subtotal.
 
@@ -118,7 +170,26 @@ def apply_discount_to_bill(bill: Bill) -> Bill:
     discounted = subtotal - bill.discount_amount
     if discounted < 0:
         discounted = Decimal("0.00")
-    bill.total = (discounted + bill.tax + bill.service_charge).quantize(CENTS)
+
+    # Tip is computed off the DISCOUNTED amount (percent base = subtotal - discount).
+    tip_type = getattr(bill, "tip_type", None) or TipType.none
+    tip_amount = compute_tip_amount(
+        discounted,
+        tip_type,
+        getattr(bill, "tip_value", Decimal("0.00")),
+    )
+
+    # Overflow guard: fixed tip is unclamped, so either the tip itself or the
+    # resulting total can exceed the Numeric(10, 2) column. Refuse to write —
+    # the API layer turns this into a 422 (never a 500).
+    total = discounted + bill.tax + bill.service_charge + tip_amount
+    if tip_amount > MAX_MONEY or total > MAX_MONEY:
+        raise TotalOverflowError(
+            "Resulting tip amount or bill total exceeds the maximum allowed value."
+        )
+
+    bill.tip_amount = tip_amount
+    bill.total = total.quantize(CENTS)
     return bill
 
 

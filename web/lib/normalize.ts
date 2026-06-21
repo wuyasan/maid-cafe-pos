@@ -1,4 +1,4 @@
-import type { BillDetail, DiscountType, Maid, SessionRead, StaffTable, StaffTablesResult } from "@/lib/types";
+import type { BillDetail, DiscountType, Maid, SessionRead, StaffTable, StaffTablesResult, TipType } from "@/lib/types";
 
 // Raw FastAPI wire shapes (what the backend actually returns). Normalized here so
 // screens consume clean domain types. Keep in sync with backend pydantic schemas.
@@ -49,6 +49,11 @@ function asDiscountType(v: unknown): DiscountType {
   return typeof v === "string" && VALID_DISCOUNT_TYPES.has(v) ? (v as DiscountType) : "none";
 }
 
+// Tip uses the same three-state shape as discount ("none"|"percent"|"fixed").
+function asTipType(v: unknown): TipType {
+  return typeof v === "string" && VALID_DISCOUNT_TYPES.has(v) ? (v as TipType) : "none";
+}
+
 /** Coerce a decimal-ish value to a fixed-2 string; falls back to "0.00". */
 function asMoney(v: unknown, fallback = "0.00"): string {
   if (v == null) return fallback;
@@ -63,6 +68,7 @@ function asMoney(v: unknown, fallback = "0.00"): string {
 export function normalizeBill(raw: BillDetail | null): BillDetail | null {
   if (!raw) return null;
   const discountType = asDiscountType(raw.discount_type);
+  const tipType = asTipType(raw.tip_type);
   const subtotal = asMoney(raw.subtotal ?? raw.total);
   return {
     ...raw,
@@ -71,6 +77,9 @@ export function normalizeBill(raw: BillDetail | null): BillDetail | null {
     discount_value: raw.discount_value != null ? String(raw.discount_value) : "0",
     discount_amount: asMoney(raw.discount_amount),
     discount_note: raw.discount_note ?? null,
+    tip_type: tipType,
+    tip_value: raw.tip_value != null ? String(raw.tip_value) : "0",
+    tip_amount: asMoney(raw.tip_amount),
     tax: asMoney(raw.tax),
     service_charge: asMoney(raw.service_charge),
     total: asMoney(raw.total ?? subtotal),

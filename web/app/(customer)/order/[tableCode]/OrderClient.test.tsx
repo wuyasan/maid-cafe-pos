@@ -31,6 +31,7 @@ vi.mock("next-intl", () => ({
       "customer.subtotal": "Subtotal",
       "customer.total": "Total",
       "customer.discount": "Discount",
+      "customer.tip": "Tip",
       "customer.taxLine": "Tax",
       "customer.placeOrder": "Place Order",
       "customer.loading": "Loading…",
@@ -65,6 +66,9 @@ const initialBill: BillDetail = {
   discount_value: "0",
   discount_amount: "0.00",
   discount_note: null,
+  tip_type: "none",
+  tip_value: "0",
+  tip_amount: "0.00",
   total: "12.00",
   tax: "0.00",
   service_charge: "0.00",
@@ -197,5 +201,54 @@ describe("OrderClient — discount display (F15)", () => {
       />,
     );
     expect(screen.queryByTestId("customer-discount-row")).toBeNull();
+  });
+});
+
+describe("OrderClient — tip display (F16)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows a read-only tip row with amount when the bill is tipped", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+
+    const tippedBill: BillDetail = {
+      ...initialBill,
+      tip_type: "percent",
+      tip_value: "10",
+      tip_amount: "1.20",
+      total: "13.20",
+    };
+
+    render(
+      <OrderClient
+        tableCode="T1"
+        items={[]}
+        categories={[]}
+        maids={[]}
+        initialBill={tippedBill}
+        source="qr"
+      />,
+    );
+
+    const row = screen.getByTestId("customer-tip-row");
+    expect(row).toBeTruthy();
+    expect(row.textContent).toContain("Tip");
+    expect(row.textContent).toContain("+$1.20");
+  });
+
+  it("does NOT show a tip row when the bill has no tip", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    render(
+      <OrderClient
+        tableCode="T1"
+        items={[]}
+        categories={[]}
+        maids={[]}
+        initialBill={initialBill}
+        source="qr"
+      />,
+    );
+    expect(screen.queryByTestId("customer-tip-row")).toBeNull();
   });
 });

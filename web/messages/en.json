@@ -48,7 +48,8 @@
     "loading": "Loading…",
     "billPaid": "Your bill is settled — thank you!",
     "billPaidHint": "Come back again ♡",
-    "discount": "Discount"
+    "discount": "Discount",
+    "tip": "Tip"
   },
   "auth": {
     "title": "Welcome back",
@@ -126,6 +127,35 @@
       "errorNotOpen": "Discounts can only be changed while the bill is open.",
       "applyFailed": "Could not apply discount.",
       "removeFailed": "Could not remove discount."
+    },
+    "tip": {
+      "subtotal": "Subtotal",
+      "total": "Total",
+      "label": "Tip",
+      "apply": "Add tip",
+      "edit": "Edit tip",
+      "remove": "Remove tip",
+      "removing": "Removing…",
+      "applying": "Adding…",
+      "modalTitle": "Add tip",
+      "typePercent": "Percent (%)",
+      "typeFixed": "Amount ($)",
+      "valueLabel": "Tip value",
+      "valuePercentPlaceholder": "0–100",
+      "valueFixedPlaceholder": "0.00",
+      "save": "Add",
+      "cancel": "Cancel",
+      "confirmTitle": "Add this tip?",
+      "confirmDescPercent": "{value}% tip — about {amount} added to this bill.",
+      "confirmDescFixed": "{amount} added to this bill.",
+      "confirmRemoveTitle": "Remove tip?",
+      "confirmRemoveDesc": "The bill total will revert to the amount before the tip.",
+      "invalidPercent": "Enter a percentage between 0 and 100.",
+      "invalidFixed": "Enter an amount of 0 or more.",
+      "errorInvalid": "Invalid tip value.",
+      "errorNotOpen": "Tips can only be changed while the bill is open.",
+      "applyFailed": "Could not add tip.",
+      "removeFailed": "Could not remove tip."
     },
     "settings": {
       "title": "Square Settings",

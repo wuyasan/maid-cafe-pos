@@ -7,7 +7,7 @@ import type {
   MarkPaidResponse,
   MarkPaidBody,
 } from "@/lib/server/api-client";
-import type { BillDetail, DiscountApply, ProductionStatus } from "@/lib/types";
+import type { BillDetail, DiscountApply, TipApply, ProductionStatus } from "@/lib/types";
 
 // All staff mutations return a result object (never throw) so the error detail
 // from FastAPI can cross the server-action boundary and be shown in the UI.
@@ -164,6 +164,49 @@ export async function removeDiscount(tableCode: string): Promise<DiscountResult>
     return {
       ok: false,
       error: e instanceof ApiError ? e.message : "Could not remove discount",
+    };
+  }
+}
+
+// ─── Tip actions (F16) ───────────────────────────────────────────────────────
+
+export type TipResult =
+  | { ok: true; data: BillDetail | null }
+  | { ok: false; error: string };
+
+/**
+ * Add a percent or fixed tip to an open bill. Backend returns 422 for an invalid
+ * value (e.g. percent out of 0–100) and 409 if the bill is not open — those error
+ * details are surfaced verbatim for the UI.
+ */
+export async function applyTip(
+  tableCode: string,
+  body: TipApply,
+): Promise<TipResult> {
+  const s = await assertStaffAction();
+  if (!s) return { ok: false, error: "Unauthorized" };
+  try {
+    const data = await api.applyTip(tableCode, body);
+    return { ok: true, data };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof ApiError ? e.message : "Could not apply tip",
+    };
+  }
+}
+
+/** Remove any tip from an open bill. Backend returns 409 if not open. */
+export async function removeTip(tableCode: string): Promise<TipResult> {
+  const s = await assertStaffAction();
+  if (!s) return { ok: false, error: "Unauthorized" };
+  try {
+    const data = await api.removeTip(tableCode);
+    return { ok: true, data };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof ApiError ? e.message : "Could not remove tip",
     };
   }
 }

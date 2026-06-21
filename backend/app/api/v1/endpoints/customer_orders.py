@@ -10,6 +10,7 @@ from app.models.order import Order, OrderItem, OrderItemMaid
 from app.schemas.bill import BillDetailRead
 from app.schemas.order import CustomerOrderCreate, OrderCreateResponse
 from app.services.bill_service import (
+    TotalOverflowError,
     get_open_bill_for_session_table,
     get_or_create_open_bill,
     get_session_table_by_table_code,
@@ -82,6 +83,9 @@ def _load_bill_detail(db: Session, bill_id: int) -> BillDetailRead:
         discount_value=bill.discount_value,
         discount_amount=bill.discount_amount,
         discount_note=bill.discount_note,
+        tip_type=bill.tip_type,
+        tip_value=bill.tip_value,
+        tip_amount=bill.tip_amount,
         total=bill.total,
         opened_at=bill.opened_at,
         closed_at=bill.closed_at,
@@ -192,3 +196,12 @@ def create_customer_order(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    except TotalOverflowError:
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Resulting bill total would exceed the maximum allowed value "
+                "(99999999.99)."
+            ),
+        )

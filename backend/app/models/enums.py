@@ -61,3 +61,9 @@ class DiscountType(str, enum.Enum):
     none = "none"
     percent = "percent"
     fixed = "fixed"
+
+
+class TipType(str, enum.Enum):
+    none = "none"
+    percent = "percent"
+    fixed = "fixed"

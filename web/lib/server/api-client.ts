@@ -82,6 +82,7 @@ import {
 } from "@/lib/normalize";
 import type {
   DiscountApply,
+  TipApply,
   StaffAuthUser,
   StaffUserAdmin,
   StaffUserCreate,
@@ -318,6 +319,20 @@ export const api = {
   removeDiscount: (tableCode: string, actor?: Actor | null) =>
     deleteReq<BillDetail | null>(
       `/staff/table/${encodeURIComponent(tableCode)}/discount`,
+      actor,
+    ).then(normalizeBill),
+
+  // ── Tip (F16) — staff writes; return the (re-computed) bill, normalized.
+  applyTip: (tableCode: string, body: TipApply, actor?: Actor | null) =>
+    postJson<BillDetail | null>(
+      `/staff/table/${encodeURIComponent(tableCode)}/tip`,
+      body,
+      actor,
+    ).then(normalizeBill),
+
+  removeTip: (tableCode: string, actor?: Actor | null) =>
+    deleteReq<BillDetail | null>(
+      `/staff/table/${encodeURIComponent(tableCode)}/tip`,
       actor,
     ).then(normalizeBill),
 

@@ -48,7 +48,8 @@
     "loading": "加载中…",
     "billPaid": "账单已结算，谢谢您 ♡",
     "billPaidHint": "期待再次光临 ♡",
-    "discount": "折扣"
+    "discount": "折扣",
+    "tip": "小费"
   },
   "auth": {
     "title": "欢迎回来",
@@ -126,6 +127,35 @@
       "errorNotOpen": "仅在账单未结账时可调整折扣。",
       "applyFailed": "无法应用折扣。",
       "removeFailed": "无法移除折扣。"
+    },
+    "tip": {
+      "subtotal": "小计",
+      "total": "应付",
+      "label": "小费",
+      "apply": "加小费",
+      "edit": "修改小费",
+      "remove": "移除小费",
+      "removing": "移除中…",
+      "applying": "添加中…",
+      "modalTitle": "添加小费",
+      "typePercent": "百分比 (%)",
+      "typeFixed": "金额 ($)",
+      "valueLabel": "小费值",
+      "valuePercentPlaceholder": "0–100",
+      "valueFixedPlaceholder": "0.00",
+      "save": "添加",
+      "cancel": "取消",
+      "confirmTitle": "确认添加此小费？",
+      "confirmDescPercent": "小费 {value}% — 本单约加 {amount}。",
+      "confirmDescFixed": "本单加 {amount}。",
+      "confirmRemoveTitle": "移除小费？",
+      "confirmRemoveDesc": "账单总额将恢复为加小费前的金额。",
+      "invalidPercent": "请输入 0 到 100 之间的百分比。",
+      "invalidFixed": "请输入 0 或以上的金额。",
+      "errorInvalid": "小费值无效。",
+      "errorNotOpen": "仅在账单未结账时可调整小费。",
+      "applyFailed": "无法添加小费。",
+      "removeFailed": "无法移除小费。"
     },
     "settings": {
       "title": "Square 设置",
