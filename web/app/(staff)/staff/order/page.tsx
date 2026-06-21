@@ -250,44 +250,38 @@ function TableButton({
       <div
         style={{
           display: "flex",
-          gap: 6,
-          marginTop: 10,
-          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          marginTop: 12,
         }}
-        onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
-          disabled={pending || current <= 0 || table.status === "paying"}
           onClick={() => setGuests(current - 1)}
+          disabled={current <= 0}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 999,
+          }}
         >
           −
         </button>
 
-        <input
-          value={guestInput}
-          onChange={(e) => setGuestInput(e.target.value)}
-          inputMode="numeric"
-          style={{ width: 48, textAlign: "center" }}
-        />
-
         <button
           type="button"
-          disabled={pending || table.status === "paying"}
-          onClick={addGuests}
+          onClick={() => setGuests(current + 1)}
+          disabled={current >= table.seats}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 999,
+          }}
         >
-          + Guest
-        </button>
-
-        <button
-          type="button"
-          disabled={pending || table.status === "paying"}
-          onClick={() => setGuests(0)}
-        >
-          Clear
+          +
         </button>
       </div>
-
+      
       {error && (
         <div style={{ marginTop: 6, color: "#C9486A", fontSize: 12 }}>
           {error}
