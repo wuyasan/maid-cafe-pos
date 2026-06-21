@@ -130,14 +130,28 @@ export interface BillItem {
   selected_maids: BillItemMaid[];
 }
 
+export type DiscountType = "none" | "percent" | "fixed";
+
 export interface BillDetail {
   id: number;
   status: string;
   subtotal: string;
+  // ── Discount (F15) ──────────────────────────────────────────────────────────
+  discount_type: DiscountType;
+  discount_value: string;   // percent (0–100) or fixed-dollar amount, as entered
+  discount_amount: string;  // computed dollar amount removed from subtotal
+  discount_note: string | null;
   tax: string;
   service_charge: string;
-  total: string;
+  total: string; // post-discount payable total
   items: BillItem[];
+}
+
+// ── Discount write payload (F15) ──────────────────────────────────────────────
+export interface DiscountApply {
+  type: "percent" | "fixed";
+  value: string;
+  note?: string;
 }
 
 export interface OrderLine {
@@ -470,4 +484,39 @@ export interface SessionMaidAdminRead {
   is_available: boolean;
   maid_name: string;
   maid_photo_url: string | null;
+}
+
+// ── Staff users (account system, F1) ────────────────────────────────────────────
+export type StaffUserRole = "staff" | "manager" | "admin";
+
+/** Returned by POST /staff/auth/login. */
+export interface StaffAuthUser {
+  id: number;
+  username: string;
+  display_name: string;
+  role: StaffUserRole;
+}
+
+/** Returned by the admin staff-users endpoints. */
+export interface StaffUserAdmin {
+  id: number;
+  username: string;
+  display_name: string;
+  role: StaffUserRole;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+export interface StaffUserCreate {
+  username: string;
+  display_name: string;
+  role: StaffUserRole;
+  pin: string;
+}
+
+export interface StaffUserUpdate {
+  display_name?: string;
+  role?: StaffUserRole;
+  is_active?: boolean;
 }

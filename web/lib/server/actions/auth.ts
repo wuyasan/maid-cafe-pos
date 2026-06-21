@@ -1,6 +1,7 @@
 "use server";
 import { headers } from "next/headers";
-import { createSession, clearSession, verifyPin } from "@/lib/server/auth";
+import { createSession, clearSession } from "@/lib/server/auth";
+import { api } from "@/lib/server/api-client";
 import {
   shouldRateLimit,
   deriveRateLimitKey,
@@ -47,28 +48,38 @@ function resetCounter(key: string): void {
 // ─── Actions ────────────────────────────────────────────────────────────────
 
 export async function loginAction(
-  role: "staff" | "admin",
+  username: string,
   pin: string,
 ): Promise<LoginResult> {
   try {
+    const uname = username.trim();
     const hdrs = await headers();
     const xff = hdrs.get("x-forwarded-for");
-    const key = deriveRateLimitKey(role, xff, TRUST_PROXY);
+    // Rate-limit bucket scoped by username (the credential being brute-forced).
+    const key = deriveRateLimitKey(uname.toLowerCase() || "anon", xff, TRUST_PROXY);
     const now = Date.now();
 
     if (shouldRateLimit(_attempts.get(key), now, WINDOW_MS, MAX_FAILURES)) {
       return { ok: false, errorCode: "rateLimited" };
     }
 
-    if (!verifyPin(role, pin)) {
+    let user;
+    try {
+      user = await api.staffLogin(uname, pin);
+    } catch {
+      // Any backend error (401 wrong creds, etc.) → treat as a failed attempt.
       recordFailure(key, now);
       return { ok: false, errorCode: "wrongPin" };
     }
 
     // Successful login — reset the counter for this key.
     resetCounter(key);
-    // Use role as name for now; Phase 3 can extend with actual staff names.
-    await createSession(role, role);
+    await createSession({
+      uid: user.id,
+      username: user.username,
+      name: user.display_name,
+      role: user.role,
+    });
     return { ok: true };
   } catch {
     return { ok: false, errorCode: "error" };

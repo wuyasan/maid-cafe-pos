@@ -62,3 +62,16 @@ export const STAFF_VIEWS: StaffView[] = [
 export function getStaffView(id: StaffViewId): StaffView | undefined {
   return STAFF_VIEWS.find((v) => v.id === id);
 }
+
+/** Roles that may see the Admin view. proxy.ts enforces /admin server-side;
+ * this keeps the nav/tiles free of a dead entry for non-admins. */
+export type StaffViewRole = "staff" | "manager" | "admin" | null | undefined;
+
+/**
+ * The staff views a given role should see. Admin-only views (currently `admin`)
+ * are filtered out unless the role is exactly `admin`. Single source of truth
+ * shared by the home tile grid and the sidebar so the two never diverge.
+ */
+export function visibleStaffViews(role: StaffViewRole): StaffView[] {
+  return STAFF_VIEWS.filter((v) => v.id !== "admin" || role === "admin");
+}

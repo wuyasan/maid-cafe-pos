@@ -2,9 +2,9 @@ import "server-only";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { signSession, verifySession, verifyPin, resolveSecret } from "@/lib/auth-core";
-import type { SessionPayload } from "@/lib/auth-core";
+import type { SessionPayload, StaffRole } from "@/lib/auth-core";
 
-export type { SessionPayload };
+export type { SessionPayload, StaffRole };
 export { signSession, verifySession, verifyPin };
 
 function getSecret(): string {
@@ -26,13 +26,25 @@ function getSecret(): string {
 const COOKIE_NAME = "mc_session";
 const MAX_AGE = 43200; // 12 hours
 
+/** Identity carried in the signed session cookie. */
+export interface SessionIdentity {
+  uid: number;
+  username: string;
+  name: string;
+  role: StaffRole;
+}
+
 /** Create a signed session and write the httpOnly cookie. */
-export async function createSession(
-  role: "staff" | "admin",
-  name: string,
-): Promise<void> {
+export async function createSession(identity: SessionIdentity): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  const payload: SessionPayload = { role, name, iat: now, exp: now + MAX_AGE };
+  const payload: SessionPayload = {
+    uid: identity.uid,
+    username: identity.username,
+    name: identity.name,
+    role: identity.role,
+    iat: now,
+    exp: now + MAX_AGE,
+  };
   const token = await signSession(payload, getSecret());
   const jar = await cookies();
   jar.set(COOKIE_NAME, token, {
@@ -40,7 +52,10 @@ export async function createSession(
     sameSite: "lax",
     path: "/",
     maxAge: MAX_AGE,
-    secure: process.env.NODE_ENV === "production",
+    // Secure cookies are only stored by browsers over HTTPS (localhost excepted).
+    // For a plain-HTTP IP/LAN deploy, set COOKIE_SECURE=false so the session
+    // cookie still persists; otherwise default to secure in production.
+    secure: process.env.COOKIE_SECURE !== "false" && process.env.NODE_ENV === "production",
   });
 }
 
@@ -75,6 +90,28 @@ export async function requireStaff(): Promise<NextResponse | null> {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return null;
+}
+
+/**
+ * Guard for manager-or-admin routes.
+ * Returns a 503 NextResponse if AUTH_SECRET is not configured,
+ * a 401 NextResponse if not authenticated, 403 if role is below manager, or null if OK.
+ * Usage in route handlers:
+ *   const guard = await requireManager();
+ *   if (guard) return guard;
+ */
+export async function requireManager(): Promise<NextResponse | null> {
+  if (resolveSecret() === null) {
+    return NextResponse.json({ error: "Server auth not configured" }, { status: 503 });
+  }
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (session.role !== "manager" && session.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return null;
 }
@@ -122,5 +159,15 @@ export async function assertStaffAction(): Promise<SessionPayload | null> {
 export async function assertAdminAction(): Promise<SessionPayload | null> {
   const session = await getSession();
   if (!session || session.role !== "admin") return null;
+  return session;
+}
+
+/**
+ * Server Action guard for manager-or-admin Server Actions.
+ * Returns the session if the caller is an authenticated manager/admin, null otherwise.
+ */
+export async function assertManagerAction(): Promise<SessionPayload | null> {
+  const session = await getSession();
+  if (!session || (session.role !== "manager" && session.role !== "admin")) return null;
   return session;
 }

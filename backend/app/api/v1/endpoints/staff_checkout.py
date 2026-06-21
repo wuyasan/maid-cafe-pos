@@ -1,8 +1,8 @@
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.time import utcnow
 from app.models.bill import Bill
-from app.models.enums import BillStatus, PaymentStatus, SessionTableStatus
+from app.models.enums import (
+    BillStatus,
+    DiscountType,
+    PaymentStatus,
+    SessionTableStatus,
+)
 from app.models.payment import Payment
 from app.models.maid import Maid
 from app.models.menu import MenuItem, MenuItemComponent
@@ -25,6 +30,7 @@ from app.schemas.staff import (
     SessionSummaryResponse,
 )
 from app.schemas.table import SessionTableListResponse, SessionTableSummary
+from app.services.bill_service import recalculate_bill_totals
 from app.services.session_service import get_current_active_session
 from app.services.square_verification import verify_square_payment
 
@@ -890,3 +896,151 @@ def mark_paid(
         "payment_id": payment.id,
         "payment_provider": payment.provider,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Bill discount (F15)
+# --------------------------------------------------------------------------- #
+
+
+class ApplyDiscountRequest(BaseModel):
+    type: str  # "percent" | "fixed"
+    value: Decimal
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+def _bill_discount_response(table_code: str, bill: Bill) -> dict:
+    return {
+        "success": True,
+        "table_code": table_code,
+        "bill_id": bill.id,
+        "bill_status": bill.status,
+        "subtotal": str(bill.subtotal),
+        "discount_type": bill.discount_type.value,
+        "discount_value": str(bill.discount_value),
+        "discount_amount": str(bill.discount_amount),
+        "discount_note": bill.discount_note,
+        "total": str(bill.total),
+    }
+
+
+@router.post("/table/{table_code}/discount")
+def apply_bill_discount(
+    table_code: str,
+    payload: ApplyDiscountRequest,
+    db: Session = Depends(get_db),
+    x_actor_id: Optional[str] = Header(default=None, alias="X-Actor-Id"),
+):
+    """Apply a whole-bill discount. Only allowed while the bill is open.
+
+    Validation (422 on failure):
+      - type must be "percent" or "fixed"
+      - value must be a number; percent in [0, 100]; fixed >= 0
+
+    Returns 409 if the bill is not in the 'open' state.
+    """
+    # Validate type.
+    if payload.type not in (DiscountType.percent.value, DiscountType.fixed.value):
+        raise HTTPException(
+            status_code=422,
+            detail="type must be 'percent' or 'fixed'.",
+        )
+
+    value = payload.value
+    if value is None:
+        raise HTTPException(status_code=422, detail="value is required.")
+
+    # Range checks.
+    if payload.type == DiscountType.percent.value:
+        if value < 0 or value > 100:
+            raise HTTPException(
+                status_code=422,
+                detail="percent discount value must be between 0 and 100.",
+            )
+    else:  # fixed
+        if value < 0:
+            raise HTTPException(
+                status_code=422,
+                detail="fixed discount value must be >= 0.",
+            )
+
+    _current_session, session_table, _table = (
+        get_current_session_table_by_code(db, table_code)
+    )
+
+    bill = get_open_or_paying_bill_for_session_table(db, session_table.id)
+    if not bill:
+        raise HTTPException(
+            status_code=404,
+            detail="No open bill found for this table.",
+        )
+
+    if bill.status != BillStatus.open:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Discount can only be changed while the bill is open. "
+                f"Current status: {bill.status.value}."
+            ),
+        )
+
+    bill.discount_type = DiscountType(payload.type)
+    bill.discount_value = Decimal(value)
+    bill.discount_note = payload.note
+
+    actor_id: Optional[int] = None
+    if x_actor_id is not None:
+        try:
+            actor_id = int(x_actor_id)
+        except (TypeError, ValueError):
+            actor_id = None
+    bill.discounted_by = actor_id
+    bill.discounted_at = utcnow()
+
+    # Recompute via the single source of truth so percent stays correct.
+    recalculate_bill_totals(bill)
+
+    db.commit()
+    db.refresh(bill)
+
+    return _bill_discount_response(table_code, bill)
+
+
+@router.delete("/table/{table_code}/discount")
+def remove_bill_discount(
+    table_code: str,
+    db: Session = Depends(get_db),
+):
+    """Remove any discount from the bill. Only allowed while the bill is open."""
+    _current_session, session_table, _table = (
+        get_current_session_table_by_code(db, table_code)
+    )
+
+    bill = get_open_or_paying_bill_for_session_table(db, session_table.id)
+    if not bill:
+        raise HTTPException(
+            status_code=404,
+            detail="No open bill found for this table.",
+        )
+
+    if bill.status != BillStatus.open:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Discount can only be changed while the bill is open. "
+                f"Current status: {bill.status.value}."
+            ),
+        )
+
+    bill.discount_type = DiscountType.none
+    bill.discount_value = Decimal("0.00")
+    bill.discount_note = None
+    bill.discounted_by = None
+    bill.discounted_at = None
+
+    recalculate_bill_totals(bill)
+
+    db.commit()
+    db.refresh(bill)
+
+    return _bill_discount_response(table_code, bill)

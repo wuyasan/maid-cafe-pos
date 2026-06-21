@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  normalizeBill,
   normalizeSessionMaids,
   normalizeStaffTable,
   normalizeStaffTables,
   unwrapSession,
 } from "./normalize";
+import type { BillDetail } from "./types";
 
 describe("unwrapSession", () => {
   it("unwraps the { session } envelope (real /sessions/current shape)", () => {
@@ -41,6 +43,75 @@ describe("normalizeSessionMaids", () => {
   });
   it("filters out unavailable maids (backend does not)", () => {
     expect(normalizeSessionMaids(rows).map((m) => m.id)).toEqual([10]);
+  });
+});
+
+// ─── Bill normalization (F15 discount) ─────────────────────────────────────
+
+describe("normalizeBill", () => {
+  const fullBill: BillDetail = {
+    id: 1,
+    status: "open",
+    subtotal: "20.00",
+    discount_type: "percent",
+    discount_value: "10",
+    discount_amount: "2.00",
+    discount_note: "regular",
+    tax: "0.00",
+    service_charge: "0.00",
+    total: "18.00",
+    items: [],
+  };
+
+  it("passes through a fully-populated discounted bill", () => {
+    const out = normalizeBill(fullBill)!;
+    expect(out.discount_type).toBe("percent");
+    expect(out.discount_value).toBe("10");
+    expect(out.discount_amount).toBe("2.00");
+    expect(out.discount_note).toBe("regular");
+    expect(out.total).toBe("18.00");
+  });
+
+  it("returns null when the bill is null", () => {
+    expect(normalizeBill(null)).toBeNull();
+  });
+
+  it("defaults missing discount fields to a no-discount shape", () => {
+    // Simulate a backend response without discount fields at all.
+    const raw = {
+      id: 2,
+      status: "open",
+      subtotal: "15.00",
+      total: "15.00",
+      tax: "0.00",
+      service_charge: "0.00",
+      items: [],
+    } as unknown as BillDetail;
+    const out = normalizeBill(raw)!;
+    expect(out.discount_type).toBe("none");
+    expect(out.discount_value).toBe("0");
+    expect(out.discount_amount).toBe("0.00");
+    expect(out.discount_note).toBeNull();
+    expect(out.subtotal).toBe("15.00");
+    expect(out.total).toBe("15.00");
+  });
+
+  it("coerces an unknown/invalid discount_type to 'none'", () => {
+    const raw = { ...fullBill, discount_type: "weird" as unknown as BillDetail["discount_type"] };
+    expect(normalizeBill(raw)!.discount_type).toBe("none");
+  });
+
+  it("coerces numeric amounts to fixed-2 strings", () => {
+    const raw = {
+      ...fullBill,
+      discount_amount: 2 as unknown as string,
+      total: 18 as unknown as string,
+      subtotal: 20 as unknown as string,
+    };
+    const out = normalizeBill(raw)!;
+    expect(out.discount_amount).toBe("2.00");
+    expect(out.total).toBe("18.00");
+    expect(out.subtotal).toBe("20.00");
   });
 });
 

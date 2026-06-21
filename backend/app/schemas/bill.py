@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import BillStatus
+from app.models.enums import BillStatus, DiscountType
 
 
 class BillBase(BaseModel):
@@ -13,6 +13,10 @@ class BillBase(BaseModel):
     subtotal: Decimal = Decimal("0.00")
     tax: Decimal = Decimal("0.00")
     service_charge: Decimal = Decimal("0.00")
+    discount_type: DiscountType = DiscountType.none
+    discount_value: Decimal = Decimal("0.00")
+    discount_amount: Decimal = Decimal("0.00")
+    discount_note: Optional[str] = None
     total: Decimal = Decimal("0.00")
 
 

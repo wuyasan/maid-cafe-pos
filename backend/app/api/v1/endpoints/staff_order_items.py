@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.models.bill import Bill
 from app.models.enums import BillStatus
 from app.models.order import Order, OrderItem
+from app.services.bill_service import apply_discount_to_bill
 
 router = APIRouter(
     prefix="/staff/order-items",
@@ -97,13 +98,9 @@ def _recalculate_bill(
         str(subtotal or 0)
     ).quantize(Decimal("0.01"))
 
-    bill.tax = Decimal("0.00")
-    bill.service_charge = Decimal("0.00")
-    bill.total = (
-        bill.subtotal
-        + bill.tax
-        + bill.service_charge
-    ).quantize(Decimal("0.01"))
+    # Apply discount + finalize tax/service_charge/total via the single source
+    # of truth so percent discounts stay correct after line-item edits.
+    apply_discount_to_bill(bill)
 
 
 @router.patch("/{order_item_id}/quantity")
