@@ -1257,10 +1257,30 @@ function MaidPicker({
               }}
             >
               {/* Photo area */}
-              <div style={{ height: 112, background: m.photoUrl ? undefined : grad, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div
+                style={{
+                  height: 170,
+                  background: grad,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 12,
+                }}
+              >
                 {m.photoUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.photoUrl} alt={m.name} style={{ width: "100%", height: 220, objectFit: "contain" }} />
+                  <img
+                    src={m.photoUrl}
+                    alt={m.name}
+                    style={{
+                      width: 130,
+                      height: 130,
+                      borderRadius: "50%",
+                      objectFit: "cover",
+                      objectPosition: "top center",
+                      border: "3px solid white",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                    }}
+                  />
                 )}
               </div>
               {/* Check indicator */}
