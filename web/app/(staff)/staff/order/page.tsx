@@ -2,6 +2,10 @@
 import { useTranslations } from "next-intl";
 import { useLiveQuery } from "@/lib/hooks/useLiveQuery";
 import type { StaffTable, StaffTablesResult, SessionTableStatus } from "@/lib/types";
+import {
+  addPartyToTable,
+  updateTablePartySize,
+} from "@/lib/server/actions/staff";
 
 async function fetchTables(): Promise<StaffTablesResult> {
   const res = await fetch("/api/staff/tables");
@@ -152,7 +156,12 @@ export default function StaffOrderPage() {
           }}
         >
           {tables.map((table) => (
-            <TableButton key={table.id} table={table} onSelect={openOrder} />
+            <TableButton
+              key={table.id}
+              table={table}
+              onSelect={openOrder}
+              onChanged={refetch}
+            />
           ))}
         </ul>
       )}
@@ -163,57 +172,126 @@ export default function StaffOrderPage() {
 function TableButton({
   table,
   onSelect,
+  onChanged,
 }: {
   table: StaffTable;
   onSelect: (code: string) => void;
+  onChanged: () => void;
 }) {
   const t = useTranslations("staff");
   const style = STATUS_STYLE[table.status];
+  const [guestInput, setGuestInput] = useState("1");
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const current = table.current_party_size ?? 0;
+
+  function setGuests(next: number) {
+    setError(null);
+    const safeNext = Math.max(0, Math.min(next, table.seats));
+
+    startTransition(async () => {
+      const res = await updateTablePartySize(table.id, safeNext);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onChanged();
+    });
+  }
+
+  function addGuests() {
+    const amount = Number.parseInt(guestInput, 10);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+
+    setError(null);
+    startTransition(async () => {
+      const res = await addPartyToTable(table.id, amount);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setGuestInput("1");
+      onChanged();
+    });
+  }
 
   return (
-    <li>
+    <div
+      style={{
+        background: style.bg,
+        border: `1.5px solid ${style.border}`,
+        borderRadius: 16,
+        padding: "14px 12px",
+      }}
+    >
       <button
         type="button"
         onClick={() => onSelect(table.table_code)}
         style={{
           width: "100%",
-          background: style.bg,
-          border: `1.5px solid ${style.border}`,
-          borderRadius: 16,
-          padding: "14px 12px",
+          background: "transparent",
+          border: "none",
           textAlign: "left",
           cursor: "pointer",
-          minHeight: "var(--tap-min)",
-          transition: "box-shadow 0.15s",
+          padding: 0,
         }}
       >
-        <div
-          style={{
-            fontFamily: "var(--font-num-stack)",
-            fontWeight: 700,
-            fontSize: 18,
-            color: style.color,
-            lineHeight: 1.1,
-          }}
-        >
-          {table.table_code}
-        </div>
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: style.color,
-            marginTop: 4,
-          }}
-        >
+        <div style={{ fontWeight: 800, fontSize: 18 }}>{table.table_code}</div>
+        <div style={{ color: style.color, fontWeight: 700 }}>
           {t(`floor.status.${table.status}`)}
         </div>
-        {table.current_party_size > 0 && (
-          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-            {t("order.partySize", { count: table.current_party_size })}
-          </div>
-        )}
+        <div style={{ marginTop: 4, fontSize: 13 }}>
+          Guests: {current}/{table.seats}
+        </div>
       </button>
-    </li>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 6,
+          marginTop: 10,
+          alignItems: "center",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          disabled={pending || current <= 0 || table.status === "paying"}
+          onClick={() => setGuests(current - 1)}
+        >
+          −
+        </button>
+
+        <input
+          value={guestInput}
+          onChange={(e) => setGuestInput(e.target.value)}
+          inputMode="numeric"
+          style={{ width: 48, textAlign: "center" }}
+        />
+
+        <button
+          type="button"
+          disabled={pending || table.status === "paying"}
+          onClick={addGuests}
+        >
+          + Guest
+        </button>
+
+        <button
+          type="button"
+          disabled={pending || table.status === "paying"}
+          onClick={() => setGuests(0)}
+        >
+          Clear
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ marginTop: 6, color: "#C9486A", fontSize: 12 }}>
+          {error}
+        </div>
+      )}
+    </div>
   );
 }

@@ -190,3 +190,43 @@ export async function markPaid(
     };
   }
 }
+
+// ─── Update party/table actions ──────────────────────────────────────────────────
+
+export type UpdatePartyResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export async function updateTablePartySize(
+  sessionTableId: number,
+  currentPartySize: number,
+): Promise<UpdatePartyResult> {
+  const s = await getSession();
+  if (!s) return { ok: false, error: "Unauthorized" };
+
+  try {
+    await api.updateSessionTable(sessionTableId, {
+      current_party_size: currentPartySize,
+    });
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function addPartyToTable(
+  sessionTableId: number,
+  partySize: number,
+): Promise<UpdatePartyResult> {
+  const s = await getSession();
+  if (!s) return { ok: false, error: "Unauthorized" };
+
+  try {
+    await api.addPartyToSessionTable(sessionTableId, {
+      party_size: partySize,
+    });
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
