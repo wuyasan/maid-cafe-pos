@@ -1227,63 +1227,66 @@ function MaidPicker({
       {/* Maid grid */}
       <div
         style={{
-          flex: 1,
-          overflow: "auto",
-          padding: "4px 22px 0",
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
           gap: 12,
-          alignContent: "start",
         }}
       >
         {maids.map((m) => {
           const on = selected.includes(m.id);
-          const grad = itemGradient(m.id);
+
           return (
             <button
               key={m.id}
               type="button"
               onClick={() => toggle(m.id)}
               style={{
-                background: "#fff",
-                borderRadius: 16,
-                overflow: "hidden",
-                border: on ? "2px solid var(--maid)" : "1px solid rgba(58,42,48,0.06)",
-                boxShadow: on ? "0 8px 20px -10px rgba(142,134,201,0.5)" : "none",
                 position: "relative",
-                textAlign: "left",
+                minHeight: 210,
+                borderRadius: 18,
+                border: on ? "2px solid var(--maid)" : "1px solid rgba(58,42,48,0.10)",
+                background: on ? "rgba(255, 238, 247, 0.9)" : "#fff",
+                boxShadow: on
+                  ? "0 10px 24px rgba(142,134,201,0.22)"
+                  : "0 4px 12px rgba(0,0,0,0.06)",
+                padding: 14,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
                 cursor: "pointer",
-                padding: 0,
               }}
             >
-              {/* Photo area */}
+              {m.photoUrl && (
+                <img
+                  src={m.photoUrl}
+                  alt={m.name}
+                  style={{
+                    width: 120,
+                    height: 120,
+                    borderRadius: "50%",
+                    objectFit: "cover",
+                    objectPosition: "top center",
+                    border: "3px solid white",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.16)",
+                  }}
+                />
+              )}
+
               <div
                 style={{
-                  height: 170,
-                  background: grad,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: 12,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: "var(--foreground)",
+                  textAlign: "center",
+                  lineHeight: 1.25,
+                  wordBreak: "break-word",
                 }}
               >
-                {m.photoUrl && (
-                  <img
-                    src={m.photoUrl}
-                    alt={m.name}
-                    style={{
-                      width: 130,
-                      height: 130,
-                      borderRadius: "50%",
-                      objectFit: "cover",
-                      objectPosition: "top center",
-                      border: "3px solid white",
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                    }}
-                  />
-                )}
+                {m.name}
               </div>
-              {/* Check indicator */}
+
               <div
                 style={{
                   position: "absolute",
@@ -1292,7 +1295,7 @@ function MaidPicker({
                   width: 24,
                   height: 24,
                   borderRadius: "50%",
-                  background: on ? "var(--maid)" : "rgba(255,255,255,0.7)",
+                  background: on ? "var(--maid)" : "rgba(255,255,255,0.85)",
                   border: on ? "none" : "1.5px solid #D8CBD0",
                   display: "flex",
                   alignItems: "center",
@@ -1300,14 +1303,20 @@ function MaidPicker({
                 }}
               >
                 {on && (
-                  <svg width={14} height={14} viewBox="0 0 24 24" stroke="#fff" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <svg
+                    width={14}
+                    height={14}
+                    viewBox="0 0 24 24"
+                    stroke="#fff"
+                    strokeWidth="3"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
                     <path d="m5 12 5 5L20 7" />
                   </svg>
                 )}
-              </div>
-              {/* Name */}
-              <div style={{ padding: "8px 10px 10px" }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: "var(--foreground)" }}>{m.name}</div>
               </div>
             </button>
           );
