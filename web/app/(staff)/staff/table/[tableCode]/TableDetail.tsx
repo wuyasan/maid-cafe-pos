@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { withBasePath } from "@/lib/base-path";
 import { useLiveQuery } from "@/lib/hooks/useLiveQuery";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
@@ -52,7 +53,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
   // Poll via /api/staff/table/[code]/bill to keep bill live.
   const fetcher = useCallback(
     () =>
-      fetch(`/api/staff/table/${tableCode}/bill`).then((r) => {
+      fetch(withBasePath(`/api/staff/table/${tableCode}/bill`)).then((r) => {
         if (!r.ok) throw new Error("bill fetch failed");
         return r.json() as Promise<BillDetail | null>;
       }),
@@ -112,7 +113,7 @@ export function TableDetail({ tableCode, initialBill }: Props) {
         clearTimeout(squareResetTimer.current!);
         setSquarePending(false);
         const next = encodeURIComponent(pathname);
-        window.location.href = `/staff/square-settings?next=${next}`;
+        window.location.href = withBasePath(`/staff/square-settings?next=${next}`);
         return;
       }
 

@@ -3,6 +3,7 @@ import { useTranslations, useLocale } from "next-intl";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useTransition, useSyncExternalStore } from "react";
+import { withBasePath } from "@/lib/base-path";
 import { logoutAction } from "@/lib/server/actions/auth";
 import { isSoundEnabled, setSoundEnabled } from "@/lib/sound";
 import { visibleStaffViews } from "@/lib/staffViews";
@@ -63,7 +64,7 @@ export function StaffShell({ session, role = null, children, pendingCounts }: St
   function handleLogout() {
     startTransition(async () => {
       await logoutAction();
-      window.location.replace("/login");
+      window.location.replace(withBasePath("/login"));
     });
   }
 

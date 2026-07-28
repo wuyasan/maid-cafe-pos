@@ -2,6 +2,7 @@
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useTransition, useState, useRef } from "react";
+import { withBasePath } from "@/lib/base-path";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { createMaid, updateMaid, deleteMaid } from "@/lib/server/actions/admin";
 import {
@@ -46,7 +47,7 @@ function MaidForm({ initial, onDone, onCancel }: MaidFormProps) {
     try {
       const fd = new FormData();
       fd.append("image", file);
-      const res = await fetch("/api/admin/upload/maid-image", { method: "POST", body: fd });
+      const res = await fetch(withBasePath("/api/admin/upload/maid-image"), { method: "POST", body: fd });
       if (!res.ok) {
         const d = await res.json() as { error?: string };
         throw new Error(d.error ?? "Upload failed");
@@ -97,7 +98,7 @@ function MaidForm({ initial, onDone, onCancel }: MaidFormProps) {
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
           {photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={photoUrl} alt="Maid preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: "50%", border: "2px solid var(--line)", flexShrink: 0 }} />
+            <img src={withBasePath(photoUrl)} alt="Maid preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: "50%", border: "2px solid var(--line)", flexShrink: 0 }} />
           ) : (
             <div style={{ width: 80, height: 80, borderRadius: "50%", background: "var(--background)", border: "2px dashed var(--line)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted-2)", fontSize: 11, flexShrink: 0 }}>No photo</div>
           )}
@@ -250,7 +251,7 @@ export function MaidsClient({ initialMaids }: MaidsClientProps) {
                 {/* Avatar */}
                 {maid.photo_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={maid.photo_url} alt={maid.name} style={{ width: 50, height: 50, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: "2px solid var(--line)" }} />
+                  <img src={withBasePath(maid.photo_url)} alt={maid.name} style={{ width: 50, height: 50, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: "2px solid var(--line)" }} />
                 ) : (
                   <div style={{ width: 50, height: 50, borderRadius: "50%", background: "var(--maid)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 20, color: "#fff", flexShrink: 0 }}>
                     {maid.name.slice(0, 1).toUpperCase()}

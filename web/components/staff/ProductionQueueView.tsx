@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
+import { withBasePath } from "@/lib/base-path";
 import { useLiveQuery } from "@/lib/hooks/useLiveQuery";
 import { setProductionStatus } from "@/lib/server/actions/staff";
 import type { ProductionQueueItem, ProductionQueueResult, ProductionStatus, ProductionStation } from "@/lib/types";
@@ -55,7 +56,7 @@ export function ProductionQueueView({ station }: Props) {
 
   const fetcher = useCallback(
     () =>
-      fetch(`/api/staff/production/queue?station=${station}`).then((r) => {
+      fetch(withBasePath(`/api/staff/production/queue?station=${station}`)).then((r) => {
         if (!r.ok) throw new Error("queue fetch failed");
         return r.json() as Promise<ProductionQueueResult>;
       }),

@@ -1,6 +1,7 @@
 "use client";
 import { useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
+import { withBasePath } from "@/lib/base-path";
 import { useLiveQuery } from "@/lib/hooks/useLiveQuery";
 import type { StaffTable, StaffTablesResult, SessionTableStatus } from "@/lib/types";
 import {
@@ -9,7 +10,7 @@ import {
 } from "@/lib/server/actions/staff";
 
 async function fetchTables(): Promise<StaffTablesResult> {
-  const res = await fetch("/api/staff/tables");
+  const res = await fetch(withBasePath("/api/staff/tables"));
   if (!res.ok) throw new Error("tables fetch failed");
   return res.json() as Promise<StaffTablesResult>;
 }
@@ -34,7 +35,7 @@ export default function StaffOrderPage() {
 
   function openOrder(tableCode: string) {
     // Reuse the customer ordering flow with source=staff.
-    window.location.href = `/order/${tableCode}?source=staff`;
+    window.location.href = withBasePath(`/order/${tableCode}?source=staff`);
   }
 
   if (isLoading && !data) {
