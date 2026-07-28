@@ -3,10 +3,10 @@ import createNextIntlPlugin from "next-intl/plugin";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
-// The production site is mounted below acronia-webapps.com/maid-cafe.
-// Keep the public value available to client-side code that uses fetch() or
-// window.location, since those APIs do not apply Next.js' basePath for us.
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "/maid-cafe";
+// The production site is mounted at the root of maidcafe.acronia-webapps.com.
+// NEXT_PUBLIC_BASE_PATH remains available for an optional future sub-path
+// deployment; the empty default means no URL prefix is added.
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 // Derive the FastAPI origin from API_BASE_URL (strip /api/v1) or a dedicated
 // UPLOAD_ORIGIN / API_ORIGIN variable, falling back to the local dev default.
