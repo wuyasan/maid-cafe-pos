@@ -6,11 +6,19 @@ const PROTECTED = ["/staff", "/admin"];
 const COOKIE_NAME = "mc_session";
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
-  const { pathname } = request.nextUrl;
+  const { pathname, basePath } = request.nextUrl;
+  const appPath =
+    basePath && pathname.startsWith(basePath)
+      ? pathname.slice(basePath.length) || "/"
+      : pathname;
+
+  const loginUrl = request.nextUrl.clone();
+  // Next.js applies basePath to Proxy redirect destinations.
+  loginUrl.pathname = "/login";
 
   // Check if this path requires authentication
   const needsAuth = PROTECTED.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    (prefix) => appPath === prefix || appPath.startsWith(`${prefix}/`),
   );
   if (!needsAuth) return NextResponse.next();
 
@@ -21,7 +29,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     console.error(
       "[proxy] AUTH_SECRET is not set in production — denying all protected routes (fail-closed).",
     );
-    return NextResponse.redirect(new URL("/login", request.url));
+    return NextResponse.redirect(loginUrl);
   }
 
   const token = request.cookies.get(COOKIE_NAME)?.value;
@@ -29,14 +37,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const session = await verifySession(token, secret);
     if (session) {
       // Enforce role: /admin requires admin role
-      if (pathname.startsWith("/admin") && session.role !== "admin") {
-        return NextResponse.redirect(new URL("/login", request.url));
+      if (appPath.startsWith("/admin") && session.role !== "admin") {
+        return NextResponse.redirect(loginUrl);
       }
       return NextResponse.next();
     }
   }
 
-  return NextResponse.redirect(new URL("/login", request.url));
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {

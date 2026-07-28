@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { withBasePath } from "@/lib/base-path";
 import { formatUSD } from "@/lib/money";
 import { maidServiceUnitPrice } from "@/lib/maidPricing";
 import { useLiveQuery } from "@/lib/hooks/useLiveQuery";
@@ -83,7 +84,7 @@ export function OrderClient({
   // Live bill polling
   const billFetcher = useCallback(
     () =>
-      fetch(`/api/customer/${tableCode}/bill`).then((r) => {
+      fetch(withBasePath(`/api/customer/${tableCode}/bill`)).then((r) => {
         if (!r.ok) throw new Error("bill fetch failed");
         return r.json() as Promise<BillDetail | null>;
       }),
@@ -425,7 +426,7 @@ function MaidServiceCard({
           >
             {item.image_url ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={item.image_url} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <img src={withBasePath(item.image_url)} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             ) : null}
             {item.item_type === "maid_service" && (
               <span
@@ -498,7 +499,7 @@ function MaidServiceCard({
           >
             {item.image_url && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={item.image_url} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <img src={withBasePath(item.image_url)} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             )}
           </div>
           <div style={{ flex: 1, padding: "14px 15px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -628,7 +629,7 @@ function CartView({
                   >
                     {line.item.image_url && (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={line.item.image_url} alt={line.item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      <img src={withBasePath(line.item.image_url)} alt={line.item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     )}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -1269,7 +1270,7 @@ function MaidPicker({
             >
               {m.photoUrl && (
                 <img
-                  src={m.photoUrl}
+                  src={withBasePath(m.photoUrl)}
                   alt={m.name}
                   style={{
                     width: 120,
@@ -1438,7 +1439,7 @@ function NoteSheet({
           >
             {line.item.image_url && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={line.item.image_url} alt={line.item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <img src={withBasePath(line.item.image_url)} alt={line.item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             )}
           </div>
           <div>

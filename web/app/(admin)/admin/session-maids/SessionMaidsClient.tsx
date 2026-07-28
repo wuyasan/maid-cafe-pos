@@ -1,6 +1,7 @@
 "use client";
 import { useTranslations } from "next-intl";
 import { useTransition, useState, useMemo, useEffect } from "react";
+import { withBasePath } from "@/lib/base-path";
 import { setSessionMaidAvailability } from "@/lib/server/actions/admin";
 import {
   adminCard,
@@ -33,7 +34,7 @@ export function SessionMaidsClient({ initialSessions, initialMaids }: SessionMai
       if (cancelled) return;
       if (!selectedSessionId) { setSessionMaids([]); setLoadingMaids(false); return; }
       setLoadingMaids(true);
-      fetch(`/api/admin/session-maids?session_id=${selectedSessionId}`)
+      fetch(withBasePath(`/api/admin/session-maids?session_id=${selectedSessionId}`))
         .then((r) => r.json() as Promise<SessionMaidAdminRead[]>)
         .then((data) => { if (!cancelled) setSessionMaids(data); })
         .catch((err) => { if (!cancelled) setActionError(err instanceof Error ? err.message : "Failed to load"); })
@@ -166,7 +167,7 @@ export function SessionMaidsClient({ initialSessions, initialMaids }: SessionMai
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     {maid.photo_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={maid.photo_url} alt={maid.name} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--line)", flexShrink: 0 }} />
+                      <img src={withBasePath(maid.photo_url)} alt={maid.name} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--line)", flexShrink: 0 }} />
                     ) : (
                       <div style={{ width: 52, height: 52, borderRadius: "50%", background: "var(--maid)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 20, color: "#fff", flexShrink: 0 }}>
                         {maid.name.slice(0, 1).toUpperCase()}

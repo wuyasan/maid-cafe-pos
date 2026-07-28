@@ -3,6 +3,7 @@ import { useTranslations, useLocale } from "next-intl";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTransition } from "react";
+import { withBasePath } from "@/lib/base-path";
 import { logoutAction } from "@/lib/server/actions/auth";
 
 // ─── Nav definition ──────────────────────────────────────────────────────────
@@ -127,7 +128,7 @@ export function AdminShell({ children }: AdminShellProps) {
   function handleLogout() {
     startTransition(async () => {
       await logoutAction();
-      window.location.replace("/login");
+      window.location.replace(withBasePath("/login"));
     });
   }
 

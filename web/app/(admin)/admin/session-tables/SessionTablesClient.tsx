@@ -1,6 +1,7 @@
 "use client";
 import { useTranslations } from "next-intl";
 import { useTransition, useState, useMemo, useEffect } from "react";
+import { withBasePath } from "@/lib/base-path";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   createSessionTable,
@@ -66,7 +67,7 @@ export function SessionTablesClient({ initialSessions, initialTables }: SessionT
       if (cancelled) return;
       if (!selectedSessionId) { setSessionTables([]); setLoadingSessionTables(false); return; }
       setLoadingSessionTables(true);
-      fetch(`/api/admin/session-tables?session_id=${selectedSessionId}`)
+      fetch(withBasePath(`/api/admin/session-tables?session_id=${selectedSessionId}`))
         .then((r) => r.json() as Promise<SessionTableAdminSummary[]>)
         .then((data) => { if (!cancelled) setSessionTables(data); })
         .catch((err) => { if (!cancelled) setActionError(err instanceof Error ? err.message : "Failed to load"); })
@@ -98,7 +99,7 @@ export function SessionTablesClient({ initialSessions, initialTables }: SessionT
 
   function refreshSessionTables() {
     if (!selectedSessionId) return;
-    fetch(`/api/admin/session-tables?session_id=${selectedSessionId}`)
+    fetch(withBasePath(`/api/admin/session-tables?session_id=${selectedSessionId}`))
       .then((r) => r.json() as Promise<SessionTableAdminSummary[]>)
       .then(setSessionTables)
       .catch((err) => setActionError(err instanceof Error ? err.message : "Failed to refresh"));

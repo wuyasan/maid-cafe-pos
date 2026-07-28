@@ -2,6 +2,7 @@
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useTransition, useState, useRef } from "react";
+import { withBasePath } from "@/lib/base-path";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { createMenuItem, updateMenuItem, deleteMenuItem } from "@/lib/server/actions/admin";
 import { formatUSD } from "@/lib/money";
@@ -54,7 +55,7 @@ function ImageField({ value, onChange, uploadPath, disabled, label }: ImageField
     try {
       const fd = new FormData();
       fd.append("image", file);
-      const res = await fetch(uploadPath, { method: "POST", body: fd });
+      const res = await fetch(withBasePath(uploadPath), { method: "POST", body: fd });
       if (!res.ok) {
         const d = await res.json() as { error?: string };
         throw new Error(d.error ?? "Upload failed");
@@ -74,7 +75,7 @@ function ImageField({ value, onChange, uploadPath, disabled, label }: ImageField
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
         {value ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={value} alt="Preview" style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 10, border: "1px solid var(--line)", flexShrink: 0 }} />
+          <img src={withBasePath(value)} alt="Preview" style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 10, border: "1px solid var(--line)", flexShrink: 0 }} />
         ) : (
           <div style={{ width: 80, height: 60, borderRadius: 10, background: "var(--background)", border: "1px dashed var(--line)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "var(--muted-2)", flexShrink: 0 }}>No image</div>
         )}
@@ -485,7 +486,7 @@ export function MenuItemsClient({ initialItems, categories }: MenuItemsClientPro
                 {/* Thumbnail */}
                 {item.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.image_url} alt={item.name} style={{ width: 64, height: 48, objectFit: "cover", borderRadius: 10, flexShrink: 0, border: "1px solid var(--line)" }} />
+                  <img src={withBasePath(item.image_url)} alt={item.name} style={{ width: 64, height: 48, objectFit: "cover", borderRadius: 10, flexShrink: 0, border: "1px solid var(--line)" }} />
                 ) : (
                   <div style={{ width: 64, height: 48, borderRadius: 10, background: "var(--card)", border: "1px solid var(--line)", flexShrink: 0 }} />
                 )}

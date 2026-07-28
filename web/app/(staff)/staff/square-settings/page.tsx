@@ -172,7 +172,7 @@ function SquareSettingsContent() {
           <input
             value={callbackUrl}
             onChange={(e) => setCallbackUrl(e.target.value)}
-            placeholder="https://your-domain/staff/square-callback"
+            placeholder="https://acronia-webapps.com/maid-cafe/staff/square-callback"
             autoCapitalize="none"
             autoCorrect="off"
             inputMode="url"
